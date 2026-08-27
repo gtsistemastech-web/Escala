@@ -28,7 +28,6 @@
                 </div>
                 <div>
                     <h1 class="text-3xl font-extrabold tracking-tight text-gray-900">Escala de Plantão Noturno</h1>
-                    <p class="text-sm text-gray-500">Distribuição justa de plantões com controle de restrições</p>
                 </div>
             </div>
             <div id="data-atual" class="text-sm text-gray-500 font-semibold bg-white px-3 py-1.5 rounded-full border shadow-sm"></div>
@@ -164,10 +163,6 @@
                         <i class="fa-solid fa-address-book text-blue-600"></i>
                         <span>Lista de Participantes</span>
                     </h2>
-                    <button onclick="confirmResetAllPlantoes()" class="text-red-600 hover:text-red-800 text-sm font-semibold flex items-center space-x-1">
-                        <i class="fa-solid fa-rotate-left"></i>
-                        <span>Zerar Todos os Plantões</span>
-                    </button>
                 </div>
                 <div class="overflow-x-auto">
                     <table class="min-w-full divide-y divide-gray-200">
@@ -195,7 +190,7 @@
         <!-- ABA 3: HISTÓRICO E CONFIGURAÇÕES -->
         <section id="tab-historico" class="hidden space-y-6">
             <!-- Backup e Restauração -->
-            <div class="bg-white p-6 rounded-xl border border-gray-200 shadow-sm grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div class="bg-white p-6 rounded-xl border border-gray-200 shadow-sm grid grid-cols-1 md:grid-cols-3 gap-6">
                 <div>
                     <h2 class="text-lg font-bold text-gray-900 mb-2 flex items-center space-x-2">
                         <i class="fa-solid fa-download text-indigo-600"></i>
@@ -220,6 +215,17 @@
                             <input type="file" id="arquivo-backup" accept=".json" onchange="uploadBackup(event)" class="hidden">
                         </label>
                     </div>
+                </div>
+                <div class="border-t md:border-t-0 md:border-l border-gray-200 md:pl-6 pt-6 md:pt-0">
+                    <h2 class="text-lg font-bold text-gray-900 mb-2 flex items-center space-x-2">
+                        <i class="fa-solid fa-triangle-exclamation text-red-600"></i>
+                        <span>Ações Destrutivas</span>
+                    </h2>
+                    <p class="text-sm text-gray-500 mb-4">Zera todos os saldos de plantões acumulados dos participantes e remove todo o histórico de escalas salvas.</p>
+                    <button onclick="confirmResetAllPlantoes()" class="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg text-sm font-semibold flex items-center space-x-2 transition-all">
+                        <i class="fa-solid fa-rotate-left"></i>
+                        <span>Zerar Todos os Plantões</span>
+                    </button>
                 </div>
             </div>
 
