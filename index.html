@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Escala de Plantão Noturno</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- FontAwesome para ícones -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- SheetJS para exportação de Excel -->
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <style>
+        .tab-active {
+            border-bottom-color: #3b82f6;
+            color: #3b82f6;
+        }
+    </style>
+</head>
+<body class="bg-gray-50 text-gray-800 min-h-screen font-sans">
+
+    <div class="max-w-6xl mx-auto px-4 py-8">
+        <!-- Header -->
+        <header class="mb-8 flex items-center justify-between border-b border-gray-200 pb-5">
+            <div class="flex items-center space-x-3">
+                <div class="bg-blue-600 text-white p-3 rounded-lg shadow-lg">
+                    <i class="fa-solid fa-calendar-days fa-2x"></i>
+                </div>
+                <div>
+                    <h1 class="text-3xl font-extrabold tracking-tight text-gray-900">Escala de Plantão Noturno</h1>
+                    <p class="text-sm text-gray-500">Distribuição justa de plantões com controle de restrições</p>
+                </div>
+            </div>
+            <div id="data-atual" class="text-sm text-gray-500 font-semibold bg-white px-3 py-1.5 rounded-full border shadow-sm"></div>
+        </header>
+
+        <!-- Navegação por Abas -->
+        <nav class="flex border-b border-gray-200 mb-8 space-x-8" aria-label="Tabs">
+            <button id="tab-escala-btn" onclick="switchTab('escala')" class="tab-active py-4 px-1 border-b-2 font-medium text-sm flex items-center space-x-2 transition-all">
+                <i class="fa-solid fa-wand-magic-sparkles"></i>
+                <span>Gerar Escala</span>
+            </button>
+            <button id="tab-participantes-btn" onclick="switchTab('participantes')" class="border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 py-4 px-1 border-b-2 font-medium text-sm flex items-center space-x-2 transition-all">
+                <i class="fa-solid fa-users"></i>
+                <span>Participantes</span>
+            </button>
+            <button id="tab-historico-btn" onclick="switchTab('historico')" class="border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 py-4 px-1 border-b-2 font-medium text-sm flex items-center space-x-2 transition-all">
+                <i class="fa-solid fa-clock-rotate-left"></i>
+                <span>Histórico e Backups</span>
+            </button>
+        </nav>
+
+        <!-- Mensagens de Alerta Global -->
+        <div id="toast-container" class="fixed top-5 right-5 z-50 flex flex-col gap-2 max-w-md"></div>
+
+        <!-- ABA 1: GERAR ESCALA -->
+        <section id="tab-escala" class="space-y-6">
+            <!-- Passo 1: Informar Restrições -->
+            <div class="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
+                <div class="flex items-center justify-between mb-4">
+                    <h2 class="text-xl font-bold text-gray-900 flex items-center space-x-2">
+                        <span class="bg-blue-100 text-blue-800 text-xs px-2.5 py-0.5 rounded-full font-bold mr-2">1</span>
+                        <span>Restrições Semanais de Disponibilidade</span>
+                    </h2>
+                    <span class="text-xs text-gray-400 font-medium">Marque apenas os dias em que cada pessoa PODE participar</span>
+                </div>
+                <div class="overflow-x-auto">
+                    <table class="min-w-full divide-y divide-gray-200">
+                        <thead class="bg-gray-50">
+                            <tr>
+                                <th scope="col" class="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Participante</th>
+                                <th scope="col" class="px-6 py-3 text-center text-xs font-bold text-gray-500 uppercase tracking-wider">Segunda</th>
+                                <th scope="col" class="px-6 py-3 text-center text-xs font-bold text-gray-500 uppercase tracking-wider">Terça</th>
+                                <th scope="col" class="px-6 py-3 text-center text-xs font-bold text-gray-500 uppercase tracking-wider">Quarta</th>
+                                <th scope="col" class="px-6 py-3 text-center text-xs font-bold text-gray-500 uppercase tracking-wider">Quinta</th>
+                                <th scope="col" class="px-6 py-3 text-center text-xs font-bold text-gray-500 uppercase tracking-wider">Sexta</th>
+                                <th scope="col" class="px-6 py-3 text-center text-xs font-bold text-gray-500 uppercase tracking-wider">Plantões Acumulados</th>
+                            </tr>
+                        </thead>
+                        <tbody id="lista-disponibilidades" class="bg-white divide-y divide-gray-200">
+                            <!-- Inserido dinamicamente via JS -->
+                        </tbody>
+                    </table>
+                </div>
+                <div id="aviso-sem-participantes" class="hidden text-center py-6 text-gray-500">
+                    <i class="fa-solid fa-circle-exclamation fa-2x text-yellow-500 mb-2"></i>
+                    <p>Não há participantes ativos cadastrados. Cadastre-os na aba "Participantes" antes de gerar a escala.</p>
+                </div>
+                <div class="mt-6 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                    <div class="flex flex-col sm:flex-row sm:items-center gap-3">
+                        <div class="flex items-center space-x-2">
+                            <label for="semana-selecionada" class="text-sm font-semibold text-gray-700">Semana do Plantão:</label>
+                            <input type="week" id="semana-selecionada" onchange="atualizarTextoSemana()" class="border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        </div>
+                        <span id="texto-intervalo-semana" class="text-sm font-bold text-blue-600 bg-blue-50 border border-blue-200 px-3 py-1.5 rounded-lg"></span>
+                    </div>
+                    <button id="gerar-escala-btn" class="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2.5 rounded-lg shadow font-semibold flex items-center space-x-2 transition-all">
+                        <i class="fa-solid fa-cogs"></i>
+                        <span>Gerar Escala Semanal</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Alertas do Algoritmo -->
+            <div id="container-alertas-escala" class="hidden bg-yellow-50 border-l-4 border-yellow-400 p-4 rounded-lg">
+                <div class="flex">
+                    <div class="flex-shrink-0">
+                        <i class="fa-solid fa-triangle-exclamation text-yellow-600"></i>
+                    </div>
+                    <div class="ml-3">
+                        <h3 class="text-sm font-bold text-yellow-800">Atenção ao gerar escala</h3>
+                        <div id="lista-alertas-escala" class="mt-2 text-sm text-yellow-700 space-y-1">
+                            <!-- Inserido dinamicamente -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Passo 2: Resultado da Escala Proposta -->
+            <div id="secao-resultado-escala" class="hidden bg-white p-6 rounded-xl border border-gray-200 shadow-sm transition-all duration-300">
+                <h2 class="text-xl font-bold text-gray-900 mb-4 flex items-center">
+                    <span class="bg-blue-100 text-blue-800 text-xs px-2.5 py-0.5 rounded-full font-bold mr-2">2</span>
+                    <span>Escala Semanal Proposta</span>
+                </h2>
+                <div class="grid grid-cols-1 md:grid-cols-5 gap-4 mb-6" id="escala-cards-container">
+                    <!-- Cards de dias da semana preenchidos dinamicamente -->
+                </div>
+                <div class="flex flex-col sm:flex-row justify-end space-y-3 sm:space-y-0 sm:space-x-3">
+                    <button id="exportar-excel-btn" class="bg-emerald-600 hover:bg-emerald-700 text-white px-5 py-2.5 rounded-lg shadow font-semibold flex items-center justify-center space-x-2 transition-all">
+                        <i class="fa-regular fa-file-excel"></i>
+                        <span>Exportar para Excel</span>
+                    </button>
+                    <button id="confirmar-escala-btn" class="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2.5 rounded-lg shadow font-semibold flex items-center justify-center space-x-2 transition-all">
+                        <i class="fa-solid fa-check-double"></i>
+                        <span>Confirmar e Salvar Escala</span>
+                    </button>
+                </div>
+            </div>
+        </section>
+
+        <!-- ABA 2: PARTICIPANTES -->
+        <section id="tab-participantes" class="hidden space-y-6">
+            <!-- Adicionar Participante -->
+            <div class="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
+                <h2 class="text-xl font-bold text-gray-900 mb-4 flex items-center space-x-2">
+                    <i class="fa-solid fa-user-plus text-blue-600"></i>
+                    <span>Cadastrar Novo Participante</span>
+                </h2>
+                <form id="form-cadastro" class="flex gap-4">
+                    <div class="flex-grow">
+                        <input type="text" id="nome-participante" placeholder="Digite o nome do participante (ex: Gustavo)" class="w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-500" required>
+                    </div>
+                    <button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2.5 rounded-lg shadow font-semibold flex items-center space-x-2 transition-all">
+                        <i class="fa-solid fa-plus"></i>
+                        <span>Adicionar</span>
+                    </button>
+                </form>
+            </div>
+
+            <!-- Listagem de Participantes -->
+            <div class="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
+                <div class="flex justify-between items-center mb-6">
+                    <h2 class="text-xl font-bold text-gray-900 flex items-center space-x-2">
+                        <i class="fa-solid fa-address-book text-blue-600"></i>
+                        <span>Lista de Participantes</span>
+                    </h2>
+                    <button onclick="confirmResetAllPlantoes()" class="text-red-600 hover:text-red-800 text-sm font-semibold flex items-center space-x-1">
+                        <i class="fa-solid fa-rotate-left"></i>
+                        <span>Zerar Todos os Plantões</span>
+                    </button>
+                </div>
+                <div class="overflow-x-auto">
+                    <table class="min-w-full divide-y divide-gray-200">
+                        <thead class="bg-gray-50">
+                            <tr>
+                                <th scope="col" class="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Nome</th>
+                                <th scope="col" class="px-6 py-3 text-center text-xs font-bold text-gray-500 uppercase tracking-wider">Plantões Acumulados</th>
+                                <th scope="col" class="px-6 py-3 text-center text-xs font-bold text-gray-500 uppercase tracking-wider">Status</th>
+                                <th scope="col" class="px-6 py-3 text-center text-xs font-bold text-gray-500 uppercase tracking-wider">Ações</th>
+                            </tr>
+                        </thead>
+                        <tbody id="corpo-lista-participantes" class="bg-white divide-y divide-gray-200">
+                            <!-- Preenchido dinamicamente via JS -->
+                        </tbody>
+                    </table>
+                </div>
+                <div id="aviso-lista-vazia" class="hidden text-center py-10 text-gray-500">
+                    <i class="fa-regular fa-folder-open fa-3x mb-3 text-gray-300"></i>
+                    <p class="text-lg font-medium">Nenhum participante cadastrado</p>
+                    <p class="text-sm">Use o formulário acima para adicionar pessoas ao rodízio de escalas.</p>
+                </div>
+            </div>
+        </section>
+
+        <!-- ABA 3: HISTÓRICO E CONFIGURAÇÕES -->
+        <section id="tab-historico" class="hidden space-y-6">
+            <!-- Backup e Restauração -->
+            <div class="bg-white p-6 rounded-xl border border-gray-200 shadow-sm grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                    <h2 class="text-lg font-bold text-gray-900 mb-2 flex items-center space-x-2">
+                        <i class="fa-solid fa-download text-indigo-600"></i>
+                        <span>Fazer Backup de Dados</span>
+                    </h2>
+                    <p class="text-sm text-gray-500 mb-4">Faça o download do banco de dados (JSON) contendo todos os participantes e histórico de escalas para guardar como cópia de segurança.</p>
+                    <button onclick="downloadBackup()" class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-semibold flex items-center space-x-2 transition-all">
+                        <i class="fa-solid fa-file-arrow-down"></i>
+                        <span>Baixar Cópia de Segurança</span>
+                    </button>
+                </div>
+                <div class="border-t md:border-t-0 md:border-l border-gray-200 md:pl-6 pt-6 md:pt-0">
+                    <h2 class="text-lg font-bold text-gray-900 mb-2 flex items-center space-x-2">
+                        <i class="fa-solid fa-upload text-amber-600"></i>
+                        <span>Restaurar Dados (Backup)</span>
+                    </h2>
+                    <p class="text-sm text-gray-500 mb-4">Carregue um arquivo JSON de backup criado anteriormente para restaurar a lista de participantes e históricos.</p>
+                    <div class="flex items-center space-x-3">
+                        <label class="bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 rounded-lg text-sm font-semibold flex items-center space-x-2 transition-all cursor-pointer">
+                            <i class="fa-solid fa-file-import"></i>
+                            <span>Selecionar Backup JSON</span>
+                            <input type="file" id="arquivo-backup" accept=".json" onchange="uploadBackup(event)" class="hidden">
+                        </label>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Histórico de Escalas Realizadas -->
+            <div class="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
+                <h2 class="text-xl font-bold text-gray-900 mb-4 flex items-center space-x-2">
+                    <i class="fa-solid fa-clock-rotate-left text-blue-600"></i>
+                    <span>Histórico de Escalas Confirmadas</span>
+                </h2>
+                <div id="lista-historico-escalas" class="space-y-6">
+                    <!-- Inserido dinamicamente -->
+                </div>
+                <div id="aviso-historico-vazio" class="hidden text-center py-10 text-gray-500">
+                    <i class="fa-solid fa-history fa-3x mb-3 text-gray-300"></i>
+                    <p class="text-lg font-medium">Nenhuma escala confirmada</p>
+                    <p class="text-sm">As escalas confirmadas na aba "Gerar Escala" aparecerão aqui.</p>
+                </div>
+            </div>
+        </section>
+    </div>
+
+    <!-- Script principal -->
+    <script src="app.js"></script>
+</body>
+</html>
