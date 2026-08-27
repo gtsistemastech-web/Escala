@@ -67,6 +67,12 @@ function loadData() {
             // Garantir chaves básicas
             if (!db.participantes) db.participantes = {};
             if (!db.historico_escalas) db.historico_escalas = [];
+            // Garantir propriedade disponibilidade
+            Object.keys(db.participantes).forEach(nome => {
+                if (!db.participantes[nome].disponibilidade) {
+                    db.participantes[nome].disponibilidade = ["Segunda", "Terça", "Quarta", "Quinta", "Sexta"];
+                }
+            });
         } catch (e) {
             console.error("Erro ao carregar dados do LocalStorage, resetando banco local.", e);
             db = { participantes: {}, historico_escalas: [] };
@@ -75,13 +81,13 @@ function loadData() {
         // Dados de exemplo iniciais para demonstração se estiver vazio
         db = {
             participantes: {
-                "Gustavo": { plantoes: 0, ativo: true },
-                "Valeria": { plantoes: 0, ativo: true },
-                "Carlos": { plantoes: 0, ativo: true },
-                "Beatriz": { plantoes: 0, ativo: true },
-                "Daniel": { plantoes: 0, ativo: true },
-                "Eduarda": { plantoes: 0, ativo: true },
-                "Fernanda": { plantoes: 0, ativo: true }
+                "Gustavo": { plantoes: 0, ativo: true, disponibilidade: ["Segunda", "Terça", "Quarta", "Quinta", "Sexta"] },
+                "Valeria": { plantoes: 0, ativo: true, disponibilidade: ["Segunda", "Terça", "Quarta", "Quinta", "Sexta"] },
+                "Carlos": { plantoes: 0, ativo: true, disponibilidade: ["Segunda", "Terça", "Quarta", "Quinta", "Sexta"] },
+                "Beatriz": { plantoes: 0, ativo: true, disponibilidade: ["Segunda", "Terça", "Quarta", "Quinta", "Sexta"] },
+                "Daniel": { plantoes: 0, ativo: true, disponibilidade: ["Segunda", "Terça", "Quarta", "Quinta", "Sexta"] },
+                "Eduarda": { plantoes: 0, ativo: true, disponibilidade: ["Segunda", "Terça", "Quarta", "Quinta", "Sexta"] },
+                "Fernanda": { plantoes: 0, ativo: true, disponibilidade: ["Segunda", "Terça", "Quarta", "Quinta", "Sexta"] }
             },
             historico_escalas: []
         };
@@ -102,7 +108,8 @@ function addParticipant(nome) {
     }
     db.participantes[nome] = {
         plantoes: 0,
-        ativo: true
+        ativo: true,
+        disponibilidade: ["Segunda", "Terça", "Quarta", "Quinta", "Sexta"]
     };
     saveData();
     return true;
@@ -281,7 +288,7 @@ function gerarEscalaSemanal() {
         return;
     }
 
-    // Coletar disponibilidades da tabela
+    // Coletar disponibilidades da tabela e salvar no banco
     const disponibilidades = {};
     const dias = ["Segunda", "Terça", "Quarta", "Quinta", "Sexta"];
     
@@ -293,7 +300,9 @@ function gerarEscalaSemanal() {
                 disponibilidades[nome].push(dia);
             }
         });
+        db.participantes[nome].disponibilidade = disponibilidades[nome];
     });
+    saveData();
 
     // Rodar algoritmo
     const resultado = solveSchedule(disponibilidades);
@@ -528,9 +537,10 @@ function renderDisponibilidades() {
         
         let htmlCheckboxes = "";
         dias.forEach(dia => {
+            const estaDisponivel = p.disponibilidade ? p.disponibilidade.includes(dia) : true;
             htmlCheckboxes += `
                 <td class="px-6 py-4 whitespace-nowrap text-center">
-                    <input type="checkbox" id="disp-${nome}-${dia}" checked class="h-4.5 w-4.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer">
+                    <input type="checkbox" id="disp-${nome}-${dia}" ${estaDisponivel ? 'checked' : ''} class="h-4.5 w-4.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer">
                 </td>
             `;
         });
@@ -799,4 +809,23 @@ function atualizarTextoSemana() {
             textoIntervalo.classList.add("hidden");
         }
     }
+}
+
+function salvarDisponibilidades() {
+    const ativos = Object.keys(db.participantes).filter(nome => db.participantes[nome].ativo);
+    const dias = ["Segunda", "Terça", "Quarta", "Quinta", "Sexta"];
+    
+    ativos.forEach(nome => {
+        const disp = [];
+        dias.forEach(dia => {
+            const check = document.getElementById(`disp-${nome}-${dia}`);
+            if (check && check.checked) {
+                disp.push(dia);
+            }
+        });
+        db.participantes[nome].disponibilidade = disp;
+    });
+    
+    saveData();
+    showToast("Disponibilidades salvas com sucesso!", "success");
 }

@@ -85,7 +85,7 @@
                     <i class="fa-solid fa-circle-exclamation fa-2x text-yellow-500 mb-2"></i>
                     <p>Não há participantes ativos cadastrados. Cadastre-os na aba "Participantes" antes de gerar a escala.</p>
                 </div>
-                <div class="mt-6 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                <div class="mt-6 flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
                     <div class="flex flex-col sm:flex-row sm:items-center gap-3">
                         <div class="flex items-center space-x-2">
                             <label for="semana-selecionada" class="text-sm font-semibold text-gray-700">Semana do Plantão:</label>
@@ -93,10 +93,16 @@
                         </div>
                         <span id="texto-intervalo-semana" class="text-sm font-bold text-blue-600 bg-blue-50 border border-blue-200 px-3 py-1.5 rounded-lg"></span>
                     </div>
-                    <button id="gerar-escala-btn" class="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2.5 rounded-lg shadow font-semibold flex items-center space-x-2 transition-all">
-                        <i class="fa-solid fa-cogs"></i>
-                        <span>Gerar Escala Semanal</span>
-                    </button>
+                    <div class="flex flex-col sm:flex-row gap-3 w-full lg:w-auto">
+                        <button id="salvar-disponibilidades-btn" onclick="salvarDisponibilidades()" class="bg-amber-500 hover:bg-amber-600 text-white px-5 py-2.5 rounded-lg shadow font-semibold flex items-center justify-center space-x-2 transition-all w-full sm:w-auto">
+                            <i class="fa-solid fa-floppy-disk"></i>
+                            <span>Salvar Disponibilidades</span>
+                        </button>
+                        <button id="gerar-escala-btn" class="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2.5 rounded-lg shadow font-semibold flex items-center justify-center space-x-2 transition-all w-full sm:w-auto">
+                            <i class="fa-solid fa-cogs"></i>
+                            <span>Gerar Escala Semanal</span>
+                        </button>
+                    </div>
                 </div>
             </div>
 
