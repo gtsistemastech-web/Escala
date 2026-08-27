@@ -288,7 +288,7 @@ function gerarEscalaSemanal() {
         return;
     }
 
-    // Coletar disponibilidades da tabela e salvar no banco
+    // Coletar disponibilidades temporárias da tabela
     const disponibilidades = {};
     const dias = ["Segunda", "Terça", "Quarta", "Quinta", "Sexta"];
     
@@ -300,9 +300,7 @@ function gerarEscalaSemanal() {
                 disponibilidades[nome].push(dia);
             }
         });
-        db.participantes[nome].disponibilidade = disponibilidades[nome];
     });
-    saveData();
 
     // Rodar algoritmo
     const resultado = solveSchedule(disponibilidades);
@@ -828,4 +826,19 @@ function salvarDisponibilidades() {
     
     saveData();
     showToast("Disponibilidades salvas com sucesso!", "success");
+}
+
+function limparDisponibilidades() {
+    const ativos = Object.keys(db.participantes).filter(nome => db.participantes[nome].ativo);
+    const dias = ["Segunda", "Terça", "Quarta", "Quinta", "Sexta"];
+    
+    ativos.forEach(nome => {
+        dias.forEach(dia => {
+            const check = document.getElementById(`disp-${nome}-${dia}`);
+            if (check) {
+                check.checked = false;
+            }
+        });
+    });
+    showToast("Campos limpos! Suas marcações salvas anteriormente continuam intactas no banco.", "success");
 }
