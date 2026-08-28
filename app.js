@@ -324,21 +324,32 @@ function gerarEscalaSemanal() {
     cardsContainer.innerHTML = "";
 
     const diasComDatas = getDaysOfWeekWithDates(semanaPropostaGlobal) || {};
+    const ativosOrdenados = Object.keys(db.participantes)
+        .filter(nome => db.participantes[nome].ativo)
+        .sort();
 
     dias.forEach(dia => {
-        const pessoa = escalaPropostaGlobal[dia];
+        const pessoaSugerida = escalaPropostaGlobal[dia];
         const card = document.createElement("div");
         card.className = `p-4 rounded-lg border shadow-sm flex flex-col items-center justify-center text-center transition-all ${
-            pessoa ? "bg-blue-50 border-blue-200" : "bg-red-50 border-red-200 text-red-700"
+            pessoaSugerida ? "bg-blue-50 border-blue-200" : "bg-red-50 border-red-200 text-red-700"
         }`;
         
+        let optionsHtml = `<option value="">-- VAGO --</option>`;
+        ativosOrdenados.forEach(nome => {
+            const selected = (nome === pessoaSugerida) ? "selected" : "";
+            const plantoes = db.participantes[nome].plantoes;
+            optionsHtml += `<option value="${nome}" ${selected}>${nome} (Saldo: ${plantoes} pl.)</option>`;
+        });
+        
         card.innerHTML = `
-            <span class="text-xs font-bold text-gray-500 uppercase tracking-wider">${diasComDatas[dia] || dia}</span>
-            <div class="my-2">
-                <i class="${pessoa ? "fa-solid fa-user-shield text-blue-600 text-2xl" : "fa-solid fa-circle-xmark text-red-500 text-2xl"}"></i>
+            <span class="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">${diasComDatas[dia] || dia}</span>
+            <div class="my-1.5">
+                <i id="icon-${dia}" class="${pessoaSugerida ? "fa-solid fa-user-shield text-blue-600 text-2xl" : "fa-solid fa-circle-xmark text-red-500 text-2xl"}"></i>
             </div>
-            <span class="text-base font-bold text-gray-900">${pessoa || "VAGO"}</span>
-            <span class="text-xs text-gray-400 mt-1">${pessoa ? `Saldo: ${db.participantes[pessoa].plantoes} plantões` : "Sem alocação"}</span>
+            <select id="select-escala-${dia}" onchange="atualizarEscalaManual('${dia}', this.value)" class="mt-2 w-full text-sm font-semibold text-gray-900 border border-gray-300 rounded-lg p-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white">
+                ${optionsHtml}
+            </select>
         `;
         cardsContainer.appendChild(card);
     });
@@ -841,4 +852,28 @@ function limparDisponibilidades() {
         });
     });
     showToast("Campos limpos! Suas marcações salvas anteriormente continuam intactas no banco.", "success");
+}
+
+function atualizarEscalaManual(dia, novoNome) {
+    if (!escalaPropostaGlobal) return;
+    
+    // Atualizar no objeto em memória
+    escalaPropostaGlobal[dia] = novoNome || null;
+    
+    // Atualizar estilo visual e ícone do card
+    const select = document.getElementById(`select-escala-${dia}`);
+    if (select) {
+        const card = select.parentElement;
+        const icon = document.getElementById(`icon-${dia}`);
+        
+        if (novoNome) {
+            card.className = "p-4 rounded-lg border shadow-sm flex flex-col items-center justify-center text-center transition-all bg-blue-50 border-blue-200";
+            if (icon) icon.className = "fa-solid fa-user-shield text-blue-600 text-2xl";
+        } else {
+            card.className = "p-4 rounded-lg border shadow-sm flex flex-col items-center justify-center text-center transition-all bg-red-50 border-red-200 text-red-700";
+            if (icon) icon.className = "fa-solid fa-circle-xmark text-red-500 text-2xl";
+        }
+    }
+    
+    showToast(`Escala de ${dia} alterada para: ${novoNome || 'VAGO'}`, "success");
 }
