@@ -85,15 +85,18 @@
                     <i class="fa-solid fa-circle-exclamation fa-2x text-yellow-500 mb-2"></i>
                     <p>Não há participantes ativos cadastrados. Cadastre-os na aba "Participantes" antes de gerar a escala.</p>
                 </div>
-                <div class="mt-6 flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
+                <div class="mt-6 flex flex-col gap-4">
+                    <!-- Linha 1: Seleção da Semana e Datas -->
                     <div class="flex flex-col sm:flex-row sm:items-center gap-3">
                         <div class="flex items-center space-x-2">
-                            <label for="semana-selecionada" class="text-sm font-semibold text-gray-700">Semana do Plantão:</label>
-                            <input type="week" id="semana-selecionada" onchange="atualizarTextoSemana()" class="border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                            <label for="semana-selecionada" class="text-sm font-semibold text-gray-700 whitespace-nowrap">Semana do Plantão:</label>
+                            <input type="week" id="semana-selecionada" onchange="atualizarTextoSemana()" class="border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 min-w-[180px]">
                         </div>
                         <span id="texto-intervalo-semana" class="text-sm font-bold text-blue-600 bg-blue-50 border border-blue-200 px-3 py-1.5 rounded-lg"></span>
                     </div>
-                    <div class="flex flex-col sm:flex-row gap-3 w-full lg:w-auto">
+                    
+                    <!-- Linha 2: Ações / Botões -->
+                    <div class="flex flex-col sm:flex-row gap-3 w-full justify-end border-t border-gray-100 pt-4">
                         <button id="limpar-disponibilidades-btn" onclick="limparDisponibilidades()" class="bg-gray-500 hover:bg-gray-600 text-white px-5 py-2.5 rounded-lg shadow font-semibold flex items-center justify-center space-x-2 transition-all w-full sm:w-auto">
                             <i class="fa-solid fa-eraser"></i>
                             <span>Limpar Marcações</span>
