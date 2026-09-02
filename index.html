@@ -94,6 +94,39 @@
                         </div>
                         <span id="texto-intervalo-semana" class="text-sm font-bold text-blue-600 bg-blue-50 border border-blue-200 px-3 py-1.5 rounded-lg"></span>
                     </div>
+
+                    <!-- Linha 1.5: Feriados na Semana (Sem Plantão) -->
+                    <div class="bg-amber-50/70 border border-amber-200 rounded-lg p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                        <div class="flex items-center gap-2">
+                            <i class="fa-solid fa-umbrella-beach text-amber-600 text-lg"></i>
+                            <div>
+                                <span class="text-xs font-bold text-amber-900 uppercase tracking-wide">Feriados na Semana (Sem Plantão):</span>
+                                <p class="text-xs text-amber-700">Marque os dias que serão feriados para retirá-los da escala</p>
+                            </div>
+                        </div>
+                        <div class="flex flex-wrap gap-2">
+                            <label class="inline-flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-bold bg-white text-gray-700 hover:bg-amber-100 hover:text-amber-900 cursor-pointer border border-amber-300 shadow-sm transition-all select-none">
+                                <input type="checkbox" id="feriado-Segunda" class="feriado-checkbox rounded text-amber-600 focus:ring-amber-500">
+                                <span>Segunda</span>
+                            </label>
+                            <label class="inline-flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-bold bg-white text-gray-700 hover:bg-amber-100 hover:text-amber-900 cursor-pointer border border-amber-300 shadow-sm transition-all select-none">
+                                <input type="checkbox" id="feriado-Terça" class="feriado-checkbox rounded text-amber-600 focus:ring-amber-500">
+                                <span>Terça</span>
+                            </label>
+                            <label class="inline-flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-bold bg-white text-gray-700 hover:bg-amber-100 hover:text-amber-900 cursor-pointer border border-amber-300 shadow-sm transition-all select-none">
+                                <input type="checkbox" id="feriado-Quarta" class="feriado-checkbox rounded text-amber-600 focus:ring-amber-500">
+                                <span>Quarta</span>
+                            </label>
+                            <label class="inline-flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-bold bg-white text-gray-700 hover:bg-amber-100 hover:text-amber-900 cursor-pointer border border-amber-300 shadow-sm transition-all select-none">
+                                <input type="checkbox" id="feriado-Quinta" class="feriado-checkbox rounded text-amber-600 focus:ring-amber-500">
+                                <span>Quinta</span>
+                            </label>
+                            <label class="inline-flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-bold bg-white text-gray-700 hover:bg-amber-100 hover:text-amber-900 cursor-pointer border border-amber-300 shadow-sm transition-all select-none">
+                                <input type="checkbox" id="feriado-Sexta" class="feriado-checkbox rounded text-amber-600 focus:ring-amber-500">
+                                <span>Sexta</span>
+                            </label>
+                        </div>
+                    </div>
                     
                     <!-- Linha 2: Ações / Botões -->
                     <div class="flex flex-col sm:flex-row gap-3 w-full justify-end border-t border-gray-100 pt-4">
@@ -130,10 +163,16 @@
 
             <!-- Passo 2: Resultado da Escala Proposta -->
             <div id="secao-resultado-escala" class="hidden bg-white p-6 rounded-xl border border-gray-200 shadow-sm transition-all duration-300">
-                <h2 class="text-xl font-bold text-gray-900 mb-4 flex items-center">
-                    <span class="bg-blue-100 text-blue-800 text-xs px-2.5 py-0.5 rounded-full font-bold mr-2">2</span>
-                    <span>Escala Semanal Proposta</span>
-                </h2>
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
+                    <h2 class="text-xl font-bold text-gray-900 flex items-center">
+                        <span class="bg-blue-100 text-blue-800 text-xs px-2.5 py-0.5 rounded-full font-bold mr-2">2</span>
+                        <span>Escala Semanal Gerada</span>
+                    </h2>
+                    <span class="inline-flex items-center gap-1.5 text-xs font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-3 py-1 rounded-full">
+                        <i class="fa-solid fa-circle-check text-emerald-600"></i>
+                        Salva automaticamente no Histórico
+                    </span>
+                </div>
                 <div class="grid grid-cols-1 md:grid-cols-5 gap-4 mb-6" id="escala-cards-container">
                     <!-- Cards de dias da semana preenchidos dinamicamente -->
                 </div>
@@ -143,8 +182,8 @@
                         <span>Exportar para Excel</span>
                     </button>
                     <button id="confirmar-escala-btn" class="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2.5 rounded-lg shadow font-semibold flex items-center justify-center space-x-2 transition-all">
-                        <i class="fa-solid fa-check-double"></i>
-                        <span>Confirmar e Salvar Escala</span>
+                        <i class="fa-solid fa-check"></i>
+                        <span>Confirmar Alterações</span>
                     </button>
                 </div>
             </div>

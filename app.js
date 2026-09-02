@@ -14,6 +14,9 @@ document.addEventListener("DOMContentLoaded", () => {
     inicializarDataSemana();
     renderAll();
     
+    // Recuperar e exibir a última escala salva nos cards da tela
+    recuperarUltimaEscalaNaTela();
+    
     // Form de cadastro
     const formCadastro = document.getElementById("form-cadastro");
     if (formCadastro) {
@@ -93,6 +96,48 @@ function loadData() {
         };
         saveData();
     }
+
+    // Garantir que todos os participantes que compõem a escala existam no cadastro
+    const participantesNecessarios = ["Patricia", "Gustavo", "Valeria", "Laryssa", "Debora", "Carlos", "Beatriz", "Daniel", "Eduarda", "Fernanda"];
+    participantesNecessarios.forEach(nome => {
+        if (!db.participantes[nome]) {
+            db.participantes[nome] = {
+                plantoes: 0,
+                ativo: true,
+                disponibilidade: ["Segunda", "Terça", "Quarta", "Quinta", "Sexta"]
+            };
+        }
+    });
+
+    // GRAVAÇÃO DA ESCALA DA SEMANA 36 (31/08/2026 a 04/09/2026):
+    const escalaSemana36 = {
+        "Segunda": "Patricia",
+        "Terça": "Gustavo",
+        "Quarta": "Valeria",
+        "Quinta": "Laryssa",
+        "Sexta": "Debora"
+    };
+    const indexSemana36 = db.historico_escalas.findIndex(h => h.semana === "2026-W36");
+    if (indexSemana36 === -1) {
+        db.historico_escalas.push({
+            semana: "2026-W36",
+            semanaTexto: "Semana 36 de 2026 (do dia 31/08/2026 ao dia 04/09/2026)",
+            escala: escalaSemana36
+        });
+        Object.values(escalaSemana36).forEach(nome => {
+            if (db.participantes[nome]) {
+                db.participantes[nome].plantoes = (db.participantes[nome].plantoes || 0) + 1;
+            }
+        });
+    } else {
+        // Atualizar escala existente para garantir que os nomes correspondam
+        db.historico_escalas[indexSemana36].escala = escalaSemana36;
+        db.historico_escalas[indexSemana36].semanaTexto = "Semana 36 de 2026 (do dia 31/08/2026 ao dia 04/09/2026)";
+    }
+
+    // Ordenar histórico por semana decrescente
+    db.historico_escalas.sort((a, b) => b.semana.localeCompare(a.semana));
+    saveData();
 }
 
 function saveData() {
@@ -160,7 +205,7 @@ function shuffleArray(array) {
     return arr;
 }
 
-function solveSchedule(disponibilidades) {
+function solveSchedule(disponibilidades, feriados = []) {
     const ativos = {};
     for (const [nome, dados] of Object.entries(db.participantes)) {
         if (dados.ativo) {
@@ -199,11 +244,11 @@ function solveSchedule(disponibilidades) {
     }
     
     let bestSchedule = {
-        "Segunda": null,
-        "Terça": null,
-        "Quarta": null,
-        "Quinta": null,
-        "Sexta": null
+        "Segunda": feriados.includes("Segunda") ? "FERIADO" : null,
+        "Terça": feriados.includes("Terça") ? "FERIADO" : null,
+        "Quarta": feriados.includes("Quarta") ? "FERIADO" : null,
+        "Quinta": feriados.includes("Quinta") ? "FERIADO" : null,
+        "Sexta": feriados.includes("Sexta") ? "FERIADO" : null
     };
     let bestScore = -1;
     
@@ -216,7 +261,9 @@ function solveSchedule(disponibilidades) {
             let score = 0;
             for (const dia of dias) {
                 const p = currentSchedule[dia];
-                if (p) {
+                if (p === "FERIADO") {
+                    score += 100000;
+                } else if (p) {
                     score += 100000 - ativos[p].plantoes;
                 }
             }
@@ -228,6 +275,15 @@ function solveSchedule(disponibilidades) {
         }
         
         const dia = dias[diaIdx];
+
+        // Se o dia for feriado, define como FERIADO e avança sem alocar participante
+        if (feriados.includes(dia)) {
+            currentSchedule[dia] = "FERIADO";
+            backtrack(diaIdx + 1, currentSchedule, currentUsedPeople);
+            currentSchedule[dia] = null;
+            return;
+        }
+
         const candidatos = candidatosPorDia[dia] || [];
         let alocouAlguem = false;
         
@@ -262,10 +318,10 @@ function solveSchedule(disponibilidades) {
         "Sexta": null
     }, new Set());
     
-    // Gerar alertas de dias que ficaram vagos
+    // Gerar alertas apenas de dias de plantão que ficaram vagos (ignorando feriados)
     const alertas = [];
     for (const dia of dias) {
-        if (!bestSchedule[dia]) {
+        if (!bestSchedule[dia] && !feriados.includes(dia)) {
             alertas.push(`Aviso: Não foi possível alocar ninguém para a <strong>${dia}</strong>. Nenhum participante livre estava disponível para este dia.`);
         }
     }
@@ -302,9 +358,30 @@ function gerarEscalaSemanal() {
         });
     });
 
-    // Rodar algoritmo
-    const resultado = solveSchedule(disponibilidades);
-    escalaPropostaGlobal = resultado.escala;
+    // Coletar feriados marcados
+    const feriados = [];
+    dias.forEach(dia => {
+        const checkFeriado = document.getElementById(`feriado-${dia}`);
+        if (checkFeriado && checkFeriado.checked) {
+            feriados.push(dia);
+        }
+    });
+
+    // Se já existe uma escala cadastrada para essa semana no histórico, avisar antes de sobrescrever
+    const existeIndex = db.historico_escalas.findIndex(h => h.semana === semanaPropostaGlobal);
+    if (existeIndex !== -1) {
+        const hExistente = db.historico_escalas[existeIndex];
+        if (!confirm(`Já existe uma escala salva no histórico para a ${hExistente.semanaTexto || semanaPropostaGlobal}. Deseja regerar e atualizar os dados no histórico?`)) {
+            return;
+        }
+    }
+
+    // Rodar algoritmo considerando disponibilidades e feriados
+    const resultado = solveSchedule(disponibilidades, feriados);
+    escalaPropostaGlobal = { ...resultado.escala };
+
+    // SALVAMENTO AUTOMÁTICO NO HISTÓRICO: Toda escala gerada é garantida no histórico
+    salvarEscalaNoHistorico(semanaPropostaGlobal, escalaPropostaGlobal);
 
     // Exibir Alertas se houver
     const containerAlertas = document.getElementById("container-alertas-escala");
@@ -319,33 +396,56 @@ function gerarEscalaSemanal() {
     }
 
     // Exibir Escala Resultante
+    exibirCardsEscala(semanaPropostaGlobal, escalaPropostaGlobal);
+    const secaoResultado = document.getElementById("secao-resultado-escala");
+    if (secaoResultado) secaoResultado.scrollIntoView({ behavior: 'smooth' });
+    showToast("Escala gerada e salva com sucesso no Histórico!", "success");
+}
+
+function exibirCardsEscala(semana, escala) {
     const secaoResultado = document.getElementById("secao-resultado-escala");
     const cardsContainer = document.getElementById("escala-cards-container");
+    if (!secaoResultado || !cardsContainer) return;
     cardsContainer.innerHTML = "";
 
-    const diasComDatas = getDaysOfWeekWithDates(semanaPropostaGlobal) || {};
+    const dias = ["Segunda", "Terça", "Quarta", "Quinta", "Sexta"];
+    const diasComDatas = getDaysOfWeekWithDates(semana) || {};
     const ativosOrdenados = Object.keys(db.participantes)
         .filter(nome => db.participantes[nome].ativo)
         .sort();
 
     dias.forEach(dia => {
-        const pessoaSugerida = escalaPropostaGlobal[dia];
+        const pessoaSugerida = escala[dia];
+        const ehFeriado = (pessoaSugerida === "FERIADO");
         const card = document.createElement("div");
-        card.className = `p-4 rounded-lg border shadow-sm flex flex-col items-center justify-center text-center transition-all ${
-            pessoaSugerida ? "bg-blue-50 border-blue-200" : "bg-red-50 border-red-200 text-red-700"
-        }`;
+
+        if (ehFeriado) {
+            card.className = "p-4 rounded-lg border shadow-sm flex flex-col items-center justify-center text-center transition-all bg-amber-50 border-amber-300 text-amber-900";
+        } else if (pessoaSugerida) {
+            card.className = "p-4 rounded-lg border shadow-sm flex flex-col items-center justify-center text-center transition-all bg-blue-50 border-blue-200";
+        } else {
+            card.className = "p-4 rounded-lg border shadow-sm flex flex-col items-center justify-center text-center transition-all bg-red-50 border-red-200 text-red-700";
+        }
         
         let optionsHtml = `<option value="">-- VAGO --</option>`;
+        optionsHtml += `<option value="FERIADO" ${ehFeriado ? "selected" : ""}>🏖️ FERIADO (Sem Plantão)</option>`;
         ativosOrdenados.forEach(nome => {
             const selected = (nome === pessoaSugerida) ? "selected" : "";
-            const plantoes = db.participantes[nome].plantoes;
+            const plantoes = db.participantes[nome] ? db.participantes[nome].plantoes : 0;
             optionsHtml += `<option value="${nome}" ${selected}>${nome} (Saldo: ${plantoes} pl.)</option>`;
         });
+
+        let iconClass = "fa-solid fa-circle-xmark text-red-500 text-2xl";
+        if (ehFeriado) {
+            iconClass = "fa-solid fa-umbrella-beach text-amber-500 text-2xl";
+        } else if (pessoaSugerida) {
+            iconClass = "fa-solid fa-user-shield text-blue-600 text-2xl";
+        }
         
         card.innerHTML = `
             <span class="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">${diasComDatas[dia] || dia}</span>
             <div class="my-1.5">
-                <i id="icon-${dia}" class="${pessoaSugerida ? "fa-solid fa-user-shield text-blue-600 text-2xl" : "fa-solid fa-circle-xmark text-red-500 text-2xl"}"></i>
+                <i id="icon-${dia}" class="${iconClass}"></i>
             </div>
             <select id="select-escala-${dia}" onchange="atualizarEscalaManual('${dia}', this.value)" class="mt-2 w-full text-sm font-semibold text-gray-900 border border-gray-300 rounded-lg p-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white">
                 ${optionsHtml}
@@ -355,65 +455,74 @@ function gerarEscalaSemanal() {
     });
 
     secaoResultado.classList.remove("hidden");
-    secaoResultado.scrollIntoView({ behavior: 'smooth' });
-    showToast("Escala sugerida gerada com sucesso!", "success");
 }
 
-function confirmarESalvarEscala() {
-    if (!escalaPropostaGlobal || !semanaPropostaGlobal) {
-        showToast("Nenhuma escala pendente para confirmação.", "error");
-        return;
+function recuperarUltimaEscalaNaTela() {
+    if (db.historico_escalas && db.historico_escalas.length > 0) {
+        const inputSemana = document.getElementById("semana-selecionada");
+        const ultima = db.historico_escalas[0];
+        if (inputSemana) {
+            inputSemana.value = ultima.semana;
+            atualizarTextoSemana();
+        }
+        escalaPropostaGlobal = { ...ultima.escala };
+        semanaPropostaGlobal = ultima.semana;
+        exibirCardsEscala(semanaPropostaGlobal, escalaPropostaGlobal);
     }
+}
 
-    // Formatar identificação da semana de forma legível (ex: "Semana 35 (do dia 24/08/2026 ao dia 28/08/2026)")
-    const parts = semanaPropostaGlobal.split("-W");
-    const datas = getDatesOfWeek(semanaPropostaGlobal);
+function salvarEscalaNoHistorico(semana, escala) {
+    if (!semana || !escala) return false;
+
+    const parts = semana.split("-W");
+    const datas = getDatesOfWeek(semana);
     const intervaloTexto = datas ? ` (${datas.formatted})` : "";
-    const semanaTexto = parts.length === 2 ? `Semana ${parts[1]} de ${parts[0]}${intervaloTexto}` : semanaPropostaGlobal;
+    const semanaTexto = parts.length === 2 ? `Semana ${parts[1]} de ${parts[0]}${intervaloTexto}` : semana;
 
     // Verificar se já existe escala cadastrada para essa semana no histórico
-    const existeIndex = db.historico_escalas.findIndex(h => h.semana === semanaPropostaGlobal);
+    const existeIndex = db.historico_escalas.findIndex(h => h.semana === semana);
     if (existeIndex !== -1) {
-        if (!confirm(`Já existe uma escala gravada para a ${semanaTexto}. Deseja sobrescrever os dados? Os saldos de plantões antigos serão recalculados.`)) {
-            return;
-        }
-        // Sobrescrever: precisamos primeiro descontar o saldo das pessoas que foram alocadas nessa escala que será deletada
+        // Sobrescrever: primeiro desconta o saldo das pessoas que foram alocadas nessa escala anterior
         const escalaAntiga = db.historico_escalas[existeIndex].escala;
         Object.values(escalaAntiga).forEach(nome => {
-            if (nome && db.participantes[nome]) {
+            if (nome && nome !== "FERIADO" && db.participantes[nome]) {
                 db.participantes[nome].plantoes = Math.max(0, db.participantes[nome].plantoes - 1);
             }
         });
         db.historico_escalas.splice(existeIndex, 1);
     }
 
-    // Adicionar +1 no saldo das pessoas da nova escala
-    Object.values(escalaPropostaGlobal).forEach(nome => {
-        if (nome && db.participantes[nome]) {
+    // Adicionar +1 no saldo das pessoas da nova escala (ignorando dias de feriado e vagos)
+    Object.values(escala).forEach(nome => {
+        if (nome && nome !== "FERIADO" && db.participantes[nome]) {
             db.participantes[nome].plantoes += 1;
         }
     });
 
     // Salvar no histórico
     db.historico_escalas.push({
-        semana: semanaPropostaGlobal,
+        semana: semana,
         semanaTexto: semanaTexto,
-        escala: { ...escalaPropostaGlobal }
+        escala: { ...escala }
     });
 
     // Ordenar histórico por semana decrescente
     db.historico_escalas.sort((a, b) => b.semana.localeCompare(a.semana));
 
     saveData();
-    escalaPropostaGlobal = null;
-    semanaPropostaGlobal = "";
+    renderHistorico();
+    renderParticipantes();
+    return true;
+}
 
-    // Resetar UI de resultado
-    document.getElementById("secao-resultado-escala").classList.add("hidden");
-    document.getElementById("container-alertas-escala").classList.add("hidden");
-    
-    renderAll();
-    showToast("Escala de plantão confirmada e salva no banco!", "success");
+function confirmarESalvarEscala() {
+    if (!escalaPropostaGlobal || !semanaPropostaGlobal) {
+        showToast("Nenhuma escala pendente na tela.", "error");
+        return;
+    }
+
+    salvarEscalaNoHistorico(semanaPropostaGlobal, escalaPropostaGlobal);
+    showToast("Escala confirmada e garantida no Histórico!", "success");
 }
 
 // --- EXPORTAÇÃO PARA EXCEL (SHEETJS) ---
@@ -428,17 +537,22 @@ function exportarEscalaExcel() {
 
     const diasComDatas = getDaysOfWeekWithDates(semanaPropostaGlobal) || {};
 
+    function formatarPessoaExcel(val) {
+        if (val === "FERIADO") return "FERIADO (Sem Plantão)";
+        return val || "VAGO";
+    }
+
     // Criar array de dados para a planilha
     const dadosExcel = [
         ["ESCALA DE PLANTÃO NOTURNO"],
         [semanaTexto.toUpperCase()],
         [],
         ["Dia da Semana", "Profissional Escalado"],
-        [diasComDatas["Segunda"] || "Segunda-feira", escalaPropostaGlobal["Segunda"] || "VAGO"],
-        [diasComDatas["Terça"] || "Terça-feira", escalaPropostaGlobal["Terça"] || "VAGO"],
-        [diasComDatas["Quarta"] || "Quarta-feira", escalaPropostaGlobal["Quarta"] || "VAGO"],
-        [diasComDatas["Quinta"] || "Quinta-feira", escalaPropostaGlobal["Quinta"] || "VAGO"],
-        [diasComDatas["Sexta"] || "Sexta-feira", escalaPropostaGlobal["Sexta"] || "VAGO"]
+        [diasComDatas["Segunda"] || "Segunda-feira", formatarPessoaExcel(escalaPropostaGlobal["Segunda"])],
+        [diasComDatas["Terça"] || "Terça-feira", formatarPessoaExcel(escalaPropostaGlobal["Terça"])],
+        [diasComDatas["Quarta"] || "Quarta-feira", formatarPessoaExcel(escalaPropostaGlobal["Quarta"])],
+        [diasComDatas["Quinta"] || "Quinta-feira", formatarPessoaExcel(escalaPropostaGlobal["Quinta"])],
+        [diasComDatas["Sexta"] || "Sexta-feira", formatarPessoaExcel(escalaPropostaGlobal["Sexta"])]
     ];
 
     // Criar workbook e worksheet do SheetJS
@@ -588,11 +702,20 @@ function renderHistorico() {
         let linhasTabela = "";
         dias.forEach(dia => {
             const pessoa = h.escala[dia];
+            let pessoaHtml = "";
+            if (pessoa === "FERIADO") {
+                pessoaHtml = '<span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-100 text-amber-800 border border-amber-300"><i class="fa-solid fa-umbrella-beach text-xs"></i> FERIADO (Sem Plantão)</span>';
+            } else if (pessoa) {
+                pessoaHtml = `<i class="fa-solid fa-user-shield text-blue-500 mr-1.5 text-xs"></i>${pessoa}`;
+            } else {
+                pessoaHtml = '<i class="fa-solid fa-circle-xmark mr-1.5 text-xs"></i>VAGO';
+            }
+
             linhasTabela += `
                 <tr class="border-b border-gray-100 last:border-0">
                     <td class="py-2.5 font-bold text-sm text-gray-700">${diasComDatas[dia] || dia}</td>
-                    <td class="py-2.5 text-sm font-semibold ${pessoa ? "text-gray-900" : "text-red-500"}">
-                        ${pessoa ? `<i class="fa-solid fa-user-shield text-blue-500 mr-1.5 text-xs"></i>${pessoa}` : '<i class="fa-solid fa-circle-xmark mr-1.5 text-xs"></i>VAGO'}
+                    <td class="py-2.5 text-sm font-semibold ${pessoa && pessoa !== 'FERIADO' ? "text-gray-900" : (pessoa === 'FERIADO' ? "text-amber-800" : "text-red-500")}">
+                        ${pessoaHtml}
                     </td>
                 </tr>
             `;
@@ -623,9 +746,9 @@ function confirmDeletarHistorico(index) {
     if (confirm("Você deseja realmente excluir esta escala? Os plantões contabilizados para os profissionais serão deduzidos de seus saldos acumulados.")) {
         const item = db.historico_escalas[index];
         
-        // Deduzir plantão de quem participou nessa escala
+        // Deduzir plantão de quem participou nessa escala (ignorando feriados)
         Object.values(item.escala).forEach(nome => {
-            if (nome && db.participantes[nome]) {
+            if (nome && nome !== "FERIADO" && db.participantes[nome]) {
                 db.participantes[nome].plantoes = Math.max(0, db.participantes[nome].plantoes - 1);
             }
         });
@@ -851,12 +974,24 @@ function limparDisponibilidades() {
             }
         });
     });
+
+    // Limpar também seleção de feriados
+    dias.forEach(dia => {
+        const checkFeriado = document.getElementById(`feriado-${dia}`);
+        if (checkFeriado) {
+            checkFeriado.checked = false;
+        }
+    });
+
     showToast("Campos limpos! Suas marcações salvas anteriormente continuam intactas no banco.", "success");
 }
 
 function atualizarEscalaManual(dia, novoNome) {
-    if (!escalaPropostaGlobal) return;
+    if (!escalaPropostaGlobal || !semanaPropostaGlobal) return;
     
+    const antigoNome = escalaPropostaGlobal[dia];
+    if (antigoNome === novoNome) return;
+
     // Atualizar no objeto em memória
     escalaPropostaGlobal[dia] = novoNome || null;
     
@@ -866,7 +1001,10 @@ function atualizarEscalaManual(dia, novoNome) {
         const card = select.parentElement;
         const icon = document.getElementById(`icon-${dia}`);
         
-        if (novoNome) {
+        if (novoNome === "FERIADO") {
+            card.className = "p-4 rounded-lg border shadow-sm flex flex-col items-center justify-center text-center transition-all bg-amber-50 border-amber-300 text-amber-900";
+            if (icon) icon.className = "fa-solid fa-umbrella-beach text-amber-500 text-2xl";
+        } else if (novoNome) {
             card.className = "p-4 rounded-lg border shadow-sm flex flex-col items-center justify-center text-center transition-all bg-blue-50 border-blue-200";
             if (icon) icon.className = "fa-solid fa-user-shield text-blue-600 text-2xl";
         } else {
@@ -874,6 +1012,27 @@ function atualizarEscalaManual(dia, novoNome) {
             if (icon) icon.className = "fa-solid fa-circle-xmark text-red-500 text-2xl";
         }
     }
+
+    // Sincronizar saldos de plantões com a alteração manual
+    if (antigoNome && antigoNome !== "FERIADO" && db.participantes[antigoNome]) {
+        db.participantes[antigoNome].plantoes = Math.max(0, db.participantes[antigoNome].plantoes - 1);
+    }
+    if (novoNome && novoNome !== "FERIADO" && db.participantes[novoNome]) {
+        db.participantes[novoNome].plantoes += 1;
+    }
+
+    // Sincronizar diretamente no histórico gravado
+    const histItem = db.historico_escalas.find(h => h.semana === semanaPropostaGlobal);
+    if (histItem) {
+        histItem.escala[dia] = novoNome || null;
+    } else {
+        salvarEscalaNoHistorico(semanaPropostaGlobal, escalaPropostaGlobal);
+    }
+
+    saveData();
+    renderHistorico();
+    renderParticipantes();
     
-    showToast(`Escala de ${dia} alterada para: ${novoNome || 'VAGO'}`, "success");
+    const labelFeedback = (novoNome === "FERIADO") ? "FERIADO (Sem Plantão)" : (novoNome || "VAGO");
+    showToast(`Escala de ${dia} alterada para: ${labelFeedback} e atualizada no Histórico!`, "success");
 }
