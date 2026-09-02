@@ -81,63 +81,49 @@ function loadData() {
             db = { participantes: {}, historico_escalas: [] };
         }
     } else {
-        // Dados de exemplo iniciais para demonstração se estiver vazio
+        // Dados de exemplo iniciais somente no primeiro uso absoluto se o LocalStorage estiver vazio
         db = {
             participantes: {
-                "Gustavo": { plantoes: 0, ativo: true, disponibilidade: ["Segunda", "Terça", "Quarta", "Quinta", "Sexta"] },
-                "Valeria": { plantoes: 0, ativo: true, disponibilidade: ["Segunda", "Terça", "Quarta", "Quinta", "Sexta"] },
-                "Carlos": { plantoes: 0, ativo: true, disponibilidade: ["Segunda", "Terça", "Quarta", "Quinta", "Sexta"] },
-                "Beatriz": { plantoes: 0, ativo: true, disponibilidade: ["Segunda", "Terça", "Quarta", "Quinta", "Sexta"] },
-                "Daniel": { plantoes: 0, ativo: true, disponibilidade: ["Segunda", "Terça", "Quarta", "Quinta", "Sexta"] },
-                "Eduarda": { plantoes: 0, ativo: true, disponibilidade: ["Segunda", "Terça", "Quarta", "Quinta", "Sexta"] },
-                "Fernanda": { plantoes: 0, ativo: true, disponibilidade: ["Segunda", "Terça", "Quarta", "Quinta", "Sexta"] }
+                "Patricia": { plantoes: 1, ativo: true, disponibilidade: ["Segunda", "Terça", "Quarta", "Quinta", "Sexta"] },
+                "Gustavo": { plantoes: 1, ativo: true, disponibilidade: ["Segunda", "Terça", "Quarta", "Quinta", "Sexta"] },
+                "Valeria": { plantoes: 1, ativo: true, disponibilidade: ["Segunda", "Terça", "Quarta", "Quinta", "Sexta"] },
+                "Laryssa": { plantoes: 1, ativo: true, disponibilidade: ["Segunda", "Terça", "Quarta", "Quinta", "Sexta"] },
+                "Debora": { plantoes: 1, ativo: true, disponibilidade: ["Segunda", "Terça", "Quarta", "Quinta", "Sexta"] }
             },
-            historico_escalas: []
+            historico_escalas: [
+                {
+                    semana: "2026-W36",
+                    semanaTexto: "Semana 36 de 2026 (do dia 31/08/2026 ao dia 04/09/2026)",
+                    escala: {
+                        "Segunda": "Patricia",
+                        "Terça": "Gustavo",
+                        "Quarta": "Valeria",
+                        "Quinta": "Laryssa",
+                        "Sexta": "Debora"
+                    }
+                }
+            ]
         };
         saveData();
     }
 
-    // Garantir que todos os participantes que compõem a escala existam no cadastro
-    const participantesNecessarios = ["Patricia", "Gustavo", "Valeria", "Laryssa", "Debora", "Carlos", "Beatriz", "Daniel", "Eduarda", "Fernanda"];
-    participantesNecessarios.forEach(nome => {
-        if (!db.participantes[nome]) {
-            db.participantes[nome] = {
-                plantoes: 0,
-                ativo: true,
-                disponibilidade: ["Segunda", "Terça", "Quarta", "Quinta", "Sexta"]
-            };
-        }
-    });
-
-    // GRAVAÇÃO DA ESCALA DA SEMANA 36 (31/08/2026 a 04/09/2026):
-    const escalaSemana36 = {
-        "Segunda": "Patricia",
-        "Terça": "Gustavo",
-        "Quarta": "Valeria",
-        "Quinta": "Laryssa",
-        "Sexta": "Debora"
-    };
-    const indexSemana36 = db.historico_escalas.findIndex(h => h.semana === "2026-W36");
-    if (indexSemana36 === -1) {
+    // Se ainda não existir a escala da Semana 36 no histórico, garantir o registro inicial uma única vez
+    const jaTemSemana36 = db.historico_escalas.some(h => h.semana === "2026-W36");
+    if (!jaTemSemana36) {
         db.historico_escalas.push({
             semana: "2026-W36",
             semanaTexto: "Semana 36 de 2026 (do dia 31/08/2026 ao dia 04/09/2026)",
-            escala: escalaSemana36
-        });
-        Object.values(escalaSemana36).forEach(nome => {
-            if (db.participantes[nome]) {
-                db.participantes[nome].plantoes = (db.participantes[nome].plantoes || 0) + 1;
+            escala: {
+                "Segunda": "Patricia",
+                "Terça": "Gustavo",
+                "Quarta": "Valeria",
+                "Quinta": "Laryssa",
+                "Sexta": "Debora"
             }
         });
-    } else {
-        // Atualizar escala existente para garantir que os nomes correspondam
-        db.historico_escalas[indexSemana36].escala = escalaSemana36;
-        db.historico_escalas[indexSemana36].semanaTexto = "Semana 36 de 2026 (do dia 31/08/2026 ao dia 04/09/2026)";
+        db.historico_escalas.sort((a, b) => b.semana.localeCompare(a.semana));
+        saveData();
     }
-
-    // Ordenar histórico por semana decrescente
-    db.historico_escalas.sort((a, b) => b.semana.localeCompare(a.semana));
-    saveData();
 }
 
 function saveData() {
