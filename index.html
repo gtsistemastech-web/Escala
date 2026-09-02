@@ -10,6 +10,9 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <!-- SheetJS para exportação de Excel -->
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <!-- Firebase SDK Compat (Google Cloud) -->
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
     <style>
         .tab-active {
             border-bottom-color: #3b82f6;
@@ -27,10 +30,21 @@
                     <i class="fa-solid fa-calendar-days fa-2x"></i>
                 </div>
                 <div>
-                    <h1 class="text-3xl font-extrabold tracking-tight text-gray-900">Escala de Plantão Noturno</h1>
+                    <h1 class="text-3xl font-extrabold tracking-tight text-gray-900 flex items-center">
+                        <span>Escala de Plantão Noturno</span>
+                        <span class="text-xs bg-emerald-100 text-emerald-800 border border-emerald-300 px-2.5 py-0.5 rounded-full font-bold ml-2.5 flex items-center gap-1.5 shadow-sm">
+                            <i class="fa-solid fa-cloud text-emerald-600"></i> v3.0 (Nuvem)
+                        </span>
+                    </h1>
                 </div>
             </div>
-            <div id="data-atual" class="text-sm text-gray-500 font-semibold bg-white px-3 py-1.5 rounded-full border shadow-sm"></div>
+            <div class="flex items-center space-x-3">
+                <div id="status-nuvem" class="text-xs font-bold px-3 py-1.5 rounded-full border shadow-sm flex items-center space-x-1.5 bg-gray-100 text-gray-600 border-gray-200 transition-all">
+                    <span id="ponto-status-nuvem" class="w-2 h-2 rounded-full bg-gray-400"></span>
+                    <span id="texto-status-nuvem">Conectando à Nuvem...</span>
+                </div>
+                <div id="data-atual" class="text-sm text-gray-500 font-semibold bg-white px-3 py-1.5 rounded-full border shadow-sm"></div>
+            </div>
         </header>
 
         <!-- Navegação por Abas -->
@@ -241,6 +255,38 @@
 
         <!-- ABA 3: HISTÓRICO E CONFIGURAÇÕES -->
         <section id="tab-historico" class="hidden space-y-6">
+            <!-- Painel de Sincronização em Nuvem -->
+            <div class="bg-gradient-to-r from-blue-50 to-indigo-50 p-6 rounded-xl border border-blue-200 shadow-sm">
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                    <div class="flex items-start space-x-3.5">
+                        <div class="p-3 bg-blue-600 text-white rounded-xl shadow-md">
+                            <i class="fa-solid fa-cloud-arrow-up fa-xl"></i>
+                        </div>
+                        <div>
+                            <h2 class="text-lg font-bold text-gray-900 flex items-center gap-2">
+                                <span>Sincronização em Nuvem (Google Firebase)</span>
+                                <span id="badge-painel-nuvem" class="text-xs bg-emerald-100 text-emerald-800 border border-emerald-300 px-2.5 py-0.5 rounded-full font-bold">Conectado</span>
+                            </h2>
+                            <p class="text-xs text-gray-600 mt-1">Os participantes e histórico de escalas são gravados na nuvem e sincronizados em tempo real entre qualquer computador ou celular.</p>
+                            <p id="detalhe-ultima-sincronizacao" class="text-xs text-blue-700 font-semibold mt-1 flex items-center gap-1.5">
+                                <i class="fa-solid fa-arrows-rotate fa-spin"></i>
+                                <span>Conectando ao banco de dados em nuvem...</span>
+                            </p>
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-2.5 flex-wrap">
+                        <button onclick="forcarSincronizacaoNuvem()" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2.5 rounded-lg text-xs font-bold shadow flex items-center space-x-2 transition-all">
+                            <i class="fa-solid fa-rotate"></i>
+                            <span>Sincronizar Agora</span>
+                        </button>
+                        <button onclick="abrirModalFirebaseConfig()" class="bg-white hover:bg-gray-100 text-gray-700 border border-gray-300 px-3.5 py-2.5 rounded-lg text-xs font-semibold shadow-sm flex items-center space-x-1.5 transition-all">
+                            <i class="fa-solid fa-gear"></i>
+                            <span>Configurar Nuvem</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
             <!-- Backup e Restauração -->
             <div class="bg-white p-6 rounded-xl border border-gray-200 shadow-sm grid grid-cols-1 md:grid-cols-3 gap-6">
                 <div>
@@ -299,7 +345,38 @@
         </section>
     </div>
 
-    <!-- Script principal -->
-    <script src="app.js"></script>
+    <!-- Modal de Configuração do Firebase -->
+    <div id="modal-firebase-config" class="hidden fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+        <div class="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-gray-200 animate-in fade-in">
+            <div class="flex items-center justify-between pb-3 border-b border-gray-200">
+                <h3 class="text-lg font-bold text-gray-900 flex items-center gap-2">
+                    <i class="fa-solid fa-cloud text-blue-600"></i>
+                    <span>Configuração do Firebase Nuvem</span>
+                </h3>
+                <button onclick="fecharModalFirebaseConfig()" class="text-gray-400 hover:text-gray-600">
+                    <i class="fa-solid fa-xmark fa-lg"></i>
+                </button>
+            </div>
+            <div class="mt-4 space-y-4">
+                <p class="text-xs text-gray-600">O sistema já vem pré-configurado e funcionando na nuvem. Se você desejar conectar a outro projeto Firebase específico, cole abaixo a configuração:</p>
+                <div>
+                    <label class="text-xs font-bold text-gray-700">Firebase Config (JSON):</label>
+                    <textarea id="input-firebase-config" rows="6" placeholder='{\n  "apiKey": "...",\n  "authDomain": "...",\n  "projectId": "..."\n}' class="mt-1 w-full text-xs font-mono border border-gray-300 rounded-lg p-3 focus:ring-2 focus:ring-blue-500 focus:outline-none"></textarea>
+                </div>
+                <div class="flex justify-between items-center pt-2">
+                    <button onclick="restaurarPadraoFirebaseConfig()" class="text-xs text-blue-600 hover:underline font-semibold">
+                        Restaurar Padrão
+                    </button>
+                    <div class="flex gap-2">
+                        <button onclick="fecharModalFirebaseConfig()" class="px-4 py-2 text-xs font-semibold text-gray-600 hover:bg-gray-100 rounded-lg">Cancelar</button>
+                        <button onclick="salvarFirebaseConfigPersonalizada()" class="px-4 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow">Salvar e Conectar</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Script principal (com cache-buster v3.0) -->
+    <script src="app.js?v=3.0"></script>
 </body>
 </html>

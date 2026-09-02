@@ -1,8 +1,22 @@
-// Banco de dados em memória local, sincronizado com LocalStorage
+// Banco de dados em memória local, sincronizado com LocalStorage e Firebase Firestore
 let db = {
     participantes: {},
     historico_escalas: []
 };
+
+// Instância e Configurações do Firebase Firestore Nuvem
+let firestoreDb = null;
+let sincronizandoComNuvem = false;
+const FIREBASE_CONFIG_PADRAO = {
+    apiKey: "AIzaSyAb41PleAsglzBLxQ6iFW3r2-cl15bYMCk",
+    authDomain: "secexecpres-contatos.firebaseapp.com",
+    projectId: "secexecpres-contatos",
+    storageBucket: "secexecpres-contatos.firebasestorage.app",
+    messagingSenderId: "841573722795",
+    appId: "1:841573722795:web:3635d93cd513c6b1a6a5ee"
+};
+const FIRESTORE_COLLECTION = "escala_plantao_noturno";
+const FIRESTORE_DOC = "dados_globais";
 
 // Escala proposta temporária (ainda não gravada)
 let escalaPropostaGlobal = null;
@@ -16,6 +30,9 @@ document.addEventListener("DOMContentLoaded", () => {
     
     // Recuperar e exibir a última escala salva nos cards da tela
     recuperarUltimaEscalaNaTela();
+    
+    // Conectar à Nuvem (Firebase Firestore)
+    initFirebase();
     
     // Form de cadastro
     const formCadastro = document.getElementById("form-cadastro");
@@ -124,10 +141,216 @@ function loadData() {
         db.historico_escalas.sort((a, b) => b.semana.localeCompare(a.semana));
         saveData();
     }
+
+    // Limpeza automática dos participantes fictícios antigos (Carlos, Beatriz, Daniel, Eduarda, Fernanda)
+    if (!localStorage.getItem("plantao_demo_cleaned_v2")) {
+        const nomesFicticios = ["Carlos", "Beatriz", "Daniel", "Eduarda", "Fernanda"];
+        nomesFicticios.forEach(n => {
+            if (db.participantes[n]) {
+                delete db.participantes[n];
+            }
+        });
+        localStorage.setItem("plantao_demo_cleaned_v2", "true");
+        saveData();
+    }
 }
 
 function saveData() {
+    // 1. Gravação local imediata (resiliência offline)
     localStorage.setItem("plantao_noturno_db", JSON.stringify(db));
+
+    // 2. Gravação na nuvem (se não estiver recebendo update da própria nuvem)
+    if (!sincronizandoComNuvem) {
+        salvarNaNuvem(db);
+    }
+}
+
+// --- SINCRONIZAÇÃO EM NUVEM (FIREBASE FIRESTORE) ---
+
+function initFirebase() {
+    if (typeof firebase === "undefined") {
+        console.warn("Firebase SDK não carregado. Operando em modo LocalStorage.");
+        atualizarStatusNuvem(false, "Firebase indisponível (Modo Local)");
+        return;
+    }
+
+    try {
+        let config = FIREBASE_CONFIG_PADRAO;
+        const configSalva = localStorage.getItem("firebase_custom_config");
+        if (configSalva) {
+            try {
+                config = JSON.parse(configSalva);
+            } catch (err) {
+                console.error("Erro ao ler firebase_custom_config, usando padrão:", err);
+            }
+        }
+
+        if (!firebase.apps || firebase.apps.length === 0) {
+            firebase.initializeApp(config);
+        }
+        firestoreDb = firebase.firestore();
+
+        atualizarStatusNuvem(true, "Conectando ao banco de dados em tempo real...");
+
+        // Listener em tempo real (onSnapshot)
+        firestoreDb.collection(FIRESTORE_COLLECTION).doc(FIRESTORE_DOC)
+            .onSnapshot((doc) => {
+                if (doc.exists) {
+                    const dadosNuvem = doc.data();
+                    aplicarDadosNuvem(dadosNuvem);
+                } else {
+                    // Documento ainda não existe na nuvem: salvar dados locais iniciais
+                    salvarNaNuvem(db);
+                    atualizarStatusNuvem(true, "Base de dados na nuvem inicializada com sucesso!");
+                }
+            }, (erro) => {
+                console.warn("Erro no listener em tempo real do Firestore:", erro);
+                atualizarStatusNuvem(false, "Sem conexão com a nuvem (Modo Local)");
+            });
+    } catch (e) {
+        console.error("Falha ao inicializar Firebase:", e);
+        atualizarStatusNuvem(false, "Erro ao conectar (Modo Local)");
+    }
+}
+
+function aplicarDadosNuvem(dadosNuvem) {
+    if (!dadosNuvem || typeof dadosNuvem !== "object") return;
+
+    const dadosFormatados = {
+        participantes: dadosNuvem.participantes || {},
+        historico_escalas: dadosNuvem.historico_escalas || []
+    };
+
+    const jsonAtual = JSON.stringify(db);
+    const jsonNovo = JSON.stringify(dadosFormatados);
+
+    if (jsonAtual !== jsonNovo) {
+        sincronizandoComNuvem = true;
+        db = dadosFormatados;
+        localStorage.setItem("plantao_noturno_db", jsonNovo);
+        renderAll();
+        recuperarUltimaEscalaNaTela();
+        sincronizandoComNuvem = false;
+
+        const horaStr = new Date().toLocaleTimeString('pt-BR');
+        atualizarStatusNuvem(true, `Sincronizado em tempo real às ${horaStr}`);
+    } else {
+        const horaStr = new Date().toLocaleTimeString('pt-BR');
+        atualizarStatusNuvem(true, `Sincronizado às ${horaStr}`);
+    }
+}
+
+function salvarNaNuvem(dados) {
+    if (!firestoreDb) return;
+
+    firestoreDb.collection(FIRESTORE_COLLECTION).doc(FIRESTORE_DOC)
+        .set({
+            participantes: dados.participantes || {},
+            historico_escalas: dados.historico_escalas || [],
+            atualizadoEm: firebase.firestore.FieldValue.serverTimestamp()
+        }, { merge: true })
+        .then(() => {
+            const horaStr = new Date().toLocaleTimeString('pt-BR');
+            atualizarStatusNuvem(true, `Salvo na nuvem às ${horaStr}`);
+        })
+        .catch((err) => {
+            console.warn("Aviso ao salvar na nuvem:", err);
+            atualizarStatusNuvem(false, "Falha ao gravar na nuvem (Salvo localmente)");
+        });
+}
+
+function atualizarStatusNuvem(conectado, texto) {
+    const statusNuvem = document.getElementById("status-nuvem");
+    const pontoStatus = document.getElementById("ponto-status-nuvem");
+    const textoStatus = document.getElementById("texto-status-nuvem");
+    const badgePainel = document.getElementById("badge-painel-nuvem");
+    const detalheUltima = document.getElementById("detalhe-ultima-sincronizacao");
+
+    if (conectado) {
+        if (statusNuvem) {
+            statusNuvem.className = "text-xs font-bold px-3 py-1.5 rounded-full border shadow-sm flex items-center space-x-1.5 bg-emerald-50 text-emerald-700 border-emerald-200 transition-all";
+        }
+        if (pontoStatus) {
+            pontoStatus.className = "w-2 h-2 rounded-full bg-emerald-500 animate-pulse";
+        }
+        if (textoStatus) {
+            textoStatus.textContent = "Nuvem Sincronizada";
+        }
+        if (badgePainel) {
+            badgePainel.className = "text-xs bg-emerald-100 text-emerald-800 border border-emerald-300 px-2.5 py-0.5 rounded-full font-bold";
+            badgePainel.textContent = "Ativa (Tempo Real)";
+        }
+        if (detalheUltima && texto) {
+            detalheUltima.innerHTML = `<i class="fa-solid fa-cloud-check text-emerald-600 mr-1.5"></i> ${texto}`;
+        }
+    } else {
+        if (statusNuvem) {
+            statusNuvem.className = "text-xs font-bold px-3 py-1.5 rounded-full border shadow-sm flex items-center space-x-1.5 bg-amber-50 text-amber-700 border-amber-200 transition-all";
+        }
+        if (pontoStatus) {
+            pontoStatus.className = "w-2 h-2 rounded-full bg-amber-500";
+        }
+        if (textoStatus) {
+            textoStatus.textContent = "Modo Local (Offline)";
+        }
+        if (badgePainel) {
+            badgePainel.className = "text-xs bg-amber-100 text-amber-800 border border-amber-300 px-2.5 py-0.5 rounded-full font-bold";
+            badgePainel.textContent = "Modo Local";
+        }
+        if (detalheUltima && texto) {
+            detalheUltima.innerHTML = `<i class="fa-solid fa-triangle-exclamation text-amber-600 mr-1.5"></i> ${texto}`;
+        }
+    }
+}
+
+function forcarSincronizacaoNuvem() {
+    if (!firestoreDb) {
+        showToast("Conectando ao Firebase...", "info");
+        initFirebase();
+        return;
+    }
+    showToast("Sincronizando com a nuvem...", "info");
+    salvarNaNuvem(db);
+}
+
+function abrirModalFirebaseConfig() {
+    const modal = document.getElementById("modal-firebase-config");
+    const textarea = document.getElementById("input-firebase-config");
+    if (modal && textarea) {
+        const configSalva = localStorage.getItem("firebase_custom_config");
+        textarea.value = configSalva || JSON.stringify(FIREBASE_CONFIG_PADRAO, null, 2);
+        modal.classList.remove("hidden");
+    }
+}
+
+function fecharModalFirebaseConfig() {
+    const modal = document.getElementById("modal-firebase-config");
+    if (modal) modal.classList.add("hidden");
+}
+
+function salvarFirebaseConfigPersonalizada() {
+    const textarea = document.getElementById("input-firebase-config");
+    if (!textarea) return;
+    try {
+        const parsed = JSON.parse(textarea.value.trim());
+        if (!parsed.projectId || !parsed.apiKey) {
+            showToast("A configuração deve conter pelo menos 'projectId' e 'apiKey'.", "error");
+            return;
+        }
+        localStorage.setItem("firebase_custom_config", JSON.stringify(parsed));
+        fecharModalFirebaseConfig();
+        showToast("Configuração salva! Recarregando conexão...", "success");
+        setTimeout(() => location.reload(), 800);
+    } catch (e) {
+        showToast("JSON de configuração inválido. Verifique as chaves e vírgulas.", "error");
+    }
+}
+
+function restaurarPadraoFirebaseConfig() {
+    localStorage.removeItem("firebase_custom_config");
+    fecharModalFirebaseConfig();
+    showToast("Configuração padrão restaurada! Recarregando...", "success");
+    setTimeout(() => location.reload(), 800);
 }
 
 // --- CONTROLE DE PARTICIPANTES ---
