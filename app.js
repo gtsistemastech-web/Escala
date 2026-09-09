@@ -1,4 +1,13 @@
-// Banco de dados em memória local, sincronizado com LocalStorage e Firebase Firestore
+// =====================================================================
+// ESCALA DE PLANTÃO NOTURNO - v3.1
+// Segunda a Quinta-feira | 1 Servidor + 1 Terceirizado por dia
+// Sincronizado com LocalStorage e Firebase Firestore
+// =====================================================================
+
+// Dias oficiais de plantão (Segunda a Quinta)
+const DIAS_PLANTAO = ["Segunda", "Terça", "Quarta", "Quinta"];
+
+// Banco de dados em memória local
 let db = {
     participantes: {},
     historico_escalas: []
@@ -22,7 +31,7 @@ const FIRESTORE_DOC = "dados_globais";
 let escalaPropostaGlobal = null;
 let semanaPropostaGlobal = "";
 
-// Inicialização da página
+// Inicialização da aplicação
 document.addEventListener("DOMContentLoaded", () => {
     loadData();
     inicializarDataSemana();
@@ -34,19 +43,23 @@ document.addEventListener("DOMContentLoaded", () => {
     // Conectar à Nuvem (Firebase Firestore)
     initFirebase();
     
-    // Form de cadastro
+    // Form de cadastro de participantes
     const formCadastro = document.getElementById("form-cadastro");
     if (formCadastro) {
         formCadastro.addEventListener("submit", (e) => {
             e.preventDefault();
             const inputNome = document.getElementById("nome-participante");
-            const nome = inputNome.value.trim();
+            const selectTipo = document.getElementById("tipo-participante");
+            const nome = inputNome ? inputNome.value.trim() : "";
+            const tipo = selectTipo ? selectTipo.value : "servidor";
+
             if (nome) {
-                const cadastrado = addParticipant(nome);
+                const cadastrado = addParticipant(nome, tipo);
                 if (cadastrado) {
                     inputNome.value = "";
                     renderAll();
-                    showToast(`Participante "${nome}" adicionado com sucesso!`, "success");
+                    const tipoLabel = tipo === "servidor" ? "Servidor" : "Terceirizado";
+                    showToast(`Participante "${nome}" (${tipoLabel}) adicionado com sucesso!`, "success");
                 }
             }
         });
@@ -84,13 +97,22 @@ function loadData() {
     if (rawData) {
         try {
             db = JSON.parse(rawData);
-            // Garantir chaves básicas
             if (!db.participantes) db.participantes = {};
             if (!db.historico_escalas) db.historico_escalas = [];
-            // Garantir propriedade disponibilidade
+
+            // Migração de schema: garantir tipo e disponibilidade restrita a Segunda-Quinta
             Object.keys(db.participantes).forEach(nome => {
-                if (!db.participantes[nome].disponibilidade) {
-                    db.participantes[nome].disponibilidade = ["Segunda", "Terça", "Quarta", "Quinta", "Sexta"];
+                const p = db.participantes[nome];
+                if (!p.tipo) {
+                    p.tipo = "servidor";
+                }
+                if (!p.disponibilidade || !Array.isArray(p.disponibilidade)) {
+                    p.disponibilidade = [...DIAS_PLANTAO];
+                } else {
+                    p.disponibilidade = p.disponibilidade.filter(d => DIAS_PLANTAO.includes(d));
+                    if (p.disponibilidade.length === 0) {
+                        p.disponibilidade = [...DIAS_PLANTAO];
+                    }
                 }
             });
         } catch (e) {
@@ -98,68 +120,35 @@ function loadData() {
             db = { participantes: {}, historico_escalas: [] };
         }
     } else {
-        // Dados de exemplo iniciais somente no primeiro uso absoluto se o LocalStorage estiver vazio
+        // Dados iniciais
         db = {
             participantes: {
-                "Patricia": { plantoes: 1, ativo: true, disponibilidade: ["Segunda", "Terça", "Quarta", "Quinta", "Sexta"] },
-                "Gustavo": { plantoes: 1, ativo: true, disponibilidade: ["Segunda", "Terça", "Quarta", "Quinta", "Sexta"] },
-                "Valeria": { plantoes: 1, ativo: true, disponibilidade: ["Segunda", "Terça", "Quarta", "Quinta", "Sexta"] },
-                "Laryssa": { plantoes: 1, ativo: true, disponibilidade: ["Segunda", "Terça", "Quarta", "Quinta", "Sexta"] },
-                "Debora": { plantoes: 1, ativo: true, disponibilidade: ["Segunda", "Terça", "Quarta", "Quinta", "Sexta"] }
+                "Patricia": { plantoes: 1, ativo: true, tipo: "servidor", disponibilidade: [...DIAS_PLANTAO] },
+                "Valeria": { plantoes: 1, ativo: true, tipo: "servidor", disponibilidade: [...DIAS_PLANTAO] },
+                "Debora": { plantoes: 1, ativo: true, tipo: "servidor", disponibilidade: [...DIAS_PLANTAO] },
+                "Gustavo": { plantoes: 1, ativo: true, tipo: "terceirizado", disponibilidade: [...DIAS_PLANTAO] },
+                "Laryssa": { plantoes: 1, ativo: true, tipo: "terceirizado", disponibilidade: [...DIAS_PLANTAO] }
             },
             historico_escalas: [
                 {
                     semana: "2026-W36",
-                    semanaTexto: "Semana 36 de 2026 (do dia 31/08/2026 ao dia 04/09/2026)",
+                    semanaTexto: "Semana 36 de 2026 (do dia 31/08/2026 ao dia 03/09/2026)",
                     escala: {
-                        "Segunda": "Patricia",
-                        "Terça": "Gustavo",
-                        "Quarta": "Valeria",
-                        "Quinta": "Laryssa",
-                        "Sexta": "Debora"
+                        "Segunda": { servidor: "Patricia", terceirizado: "Gustavo" },
+                        "Terça": { servidor: "Valeria", terceirizado: "Laryssa" },
+                        "Quarta": { servidor: "Debora", terceirizado: "Gustavo" },
+                        "Quinta": { servidor: "Patricia", terceirizado: "Laryssa" }
                     }
                 }
             ]
         };
         saveData();
     }
-
-    // Se ainda não existir a escala da Semana 36 no histórico, garantir o registro inicial uma única vez
-    const jaTemSemana36 = db.historico_escalas.some(h => h.semana === "2026-W36");
-    if (!jaTemSemana36) {
-        db.historico_escalas.push({
-            semana: "2026-W36",
-            semanaTexto: "Semana 36 de 2026 (do dia 31/08/2026 ao dia 04/09/2026)",
-            escala: {
-                "Segunda": "Patricia",
-                "Terça": "Gustavo",
-                "Quarta": "Valeria",
-                "Quinta": "Laryssa",
-                "Sexta": "Debora"
-            }
-        });
-        db.historico_escalas.sort((a, b) => b.semana.localeCompare(a.semana));
-        saveData();
-    }
-
-    // Limpeza automática dos participantes fictícios antigos (Carlos, Beatriz, Daniel, Eduarda, Fernanda)
-    if (!localStorage.getItem("plantao_demo_cleaned_v2")) {
-        const nomesFicticios = ["Carlos", "Beatriz", "Daniel", "Eduarda", "Fernanda"];
-        nomesFicticios.forEach(n => {
-            if (db.participantes[n]) {
-                delete db.participantes[n];
-            }
-        });
-        localStorage.setItem("plantao_demo_cleaned_v2", "true");
-        saveData();
-    }
 }
 
 function saveData() {
-    // 1. Gravação local imediata (resiliência offline)
     localStorage.setItem("plantao_noturno_db", JSON.stringify(db));
 
-    // 2. Gravação na nuvem (se não estiver recebendo update da própria nuvem)
     if (!sincronizandoComNuvem) {
         salvarNaNuvem(db);
     }
@@ -192,14 +181,12 @@ function initFirebase() {
 
         atualizarStatusNuvem(true, "Conectando ao banco de dados em tempo real...");
 
-        // Listener em tempo real (onSnapshot)
         firestoreDb.collection(FIRESTORE_COLLECTION).doc(FIRESTORE_DOC)
             .onSnapshot((doc) => {
                 if (doc.exists) {
                     const dadosNuvem = doc.data();
                     aplicarDadosNuvem(dadosNuvem);
                 } else {
-                    // Documento ainda não existe na nuvem: salvar dados locais iniciais
                     salvarNaNuvem(db);
                     atualizarStatusNuvem(true, "Base de dados na nuvem inicializada com sucesso!");
                 }
@@ -220,6 +207,12 @@ function aplicarDadosNuvem(dadosNuvem) {
         participantes: dadosNuvem.participantes || {},
         historico_escalas: dadosNuvem.historico_escalas || []
     };
+
+    Object.keys(dadosFormatados.participantes).forEach(nome => {
+        const p = dadosFormatados.participantes[nome];
+        if (!p.tipo) p.tipo = "servidor";
+        if (!p.disponibilidade) p.disponibilidade = [...DIAS_PLANTAO];
+    });
 
     const jsonAtual = JSON.stringify(db);
     const jsonNovo = JSON.stringify(dadosFormatados);
@@ -248,7 +241,7 @@ function salvarNaNuvem(dados) {
             participantes: dados.participantes || {},
             historico_escalas: dados.historico_escalas || [],
             atualizadoEm: firebase.firestore.FieldValue.serverTimestamp()
-        }, { merge: true })
+        })
         .then(() => {
             const horaStr = new Date().toLocaleTimeString('pt-BR');
             atualizarStatusNuvem(true, `Salvo na nuvem às ${horaStr}`);
@@ -355,7 +348,7 @@ function restaurarPadraoFirebaseConfig() {
 
 // --- CONTROLE DE PARTICIPANTES ---
 
-function addParticipant(nome) {
+function addParticipant(nome, tipo = "servidor") {
     if (db.participantes[nome]) {
         showToast(`Participante "${nome}" já está cadastrado.`, "error");
         return false;
@@ -363,10 +356,22 @@ function addParticipant(nome) {
     db.participantes[nome] = {
         plantoes: 0,
         ativo: true,
-        disponibilidade: ["Segunda", "Terça", "Quarta", "Quinta", "Sexta"]
+        tipo: tipo, // "servidor" ou "terceirizado"
+        disponibilidade: [...DIAS_PLANTAO]
     };
     saveData();
     return true;
+}
+
+function toggleParticipantTipo(nome) {
+    if (db.participantes[nome]) {
+        const novoTipo = db.participantes[nome].tipo === "servidor" ? "terceirizado" : "servidor";
+        db.participantes[nome].tipo = novoTipo;
+        saveData();
+        renderAll();
+        const label = novoTipo === "servidor" ? "Servidor" : "Terceirizado";
+        showToast(`"${nome}" alterado para categoria ${label}.`, "success");
+    }
 }
 
 function removeParticipant(nome) {
@@ -403,7 +408,7 @@ function confirmResetAllPlantoes() {
     }
 }
 
-// --- ALGORITMO DE AGENDAMENTO (BACKTRACKING + JUSTIÇA) ---
+// --- ALGORITMO DE AGENDAMENTO (BACKTRACKING + JUSTIÇA POR CATEGORIA) ---
 
 function shuffleArray(array) {
     const arr = [...array];
@@ -414,27 +419,37 @@ function shuffleArray(array) {
     return arr;
 }
 
-function solveSchedule(disponibilidades, feriados = []) {
-    const ativos = {};
+/**
+ * Resolve o agendamento de uma categoria específica (servidor ou terceirizado)
+ * para os dias Segunda a Quinta, priorizando justiça (menor saldo de plantão acumulado).
+ */
+function solveRoleSchedule(tipoDesejado, disponibilidades, feriados = []) {
+    const dias = DIAS_PLANTAO;
+    const ativosRole = {};
+
     for (const [nome, dados] of Object.entries(db.participantes)) {
-        if (dados.ativo) {
-            ativos[nome] = dados;
+        if (dados.ativo && dados.tipo === tipoDesejado) {
+            ativosRole[nome] = dados;
         }
     }
-    
-    const dias = ["Segunda", "Terça", "Quarta", "Quinta", "Sexta"];
-    
+
+    const nomesRole = Object.keys(ativosRole);
+    if (nomesRole.length === 0) {
+        const label = tipoDesejado === "servidor" ? "Servidor" : "Terceirizado";
+        const escalaVazia = {};
+        dias.forEach(d => escalaVazia[d] = feriados.includes(d) ? "FERIADO" : null);
+        return {
+            escala: escalaVazia,
+            alertas: [`Nenhum <strong>${label}</strong> ativo cadastrado no sistema.`]
+        };
+    }
+
     // Mapear candidatos por dia
-    const candidatosPorDia = {
-        "Segunda": [],
-        "Terça": [],
-        "Quarta": [],
-        "Quinta": [],
-        "Sexta": []
-    };
-    
+    const candidatosPorDia = {};
+    dias.forEach(d => { candidatosPorDia[d] = []; });
+
     for (const [nome, diasDisponiveis] of Object.entries(disponibilidades)) {
-        if (ativos[nome]) {
+        if (ativosRole[nome]) {
             for (const dia of diasDisponiveis) {
                 if (candidatosPorDia[dia]) {
                     candidatosPorDia[dia].push(nome);
@@ -442,38 +457,28 @@ function solveSchedule(disponibilidades, feriados = []) {
             }
         }
     }
-    
-    // Para cada dia, ordenar os candidatos por saldo de plantão
-    // com desempate aleatório para não favorecer nomes em ordem alfabética.
+
+    // Ordenar candidatos por saldo de plantão com desempate aleatório
     for (const dia of dias) {
         let candidatos = candidatosPorDia[dia];
         candidatos = shuffleArray(candidatos);
-        candidatos.sort((a, b) => ativos[a].plantoes - ativos[b].plantoes);
+        candidatos.sort((a, b) => ativosRole[a].plantoes - ativosRole[b].plantoes);
         candidatosPorDia[dia] = candidatos;
     }
-    
-    let bestSchedule = {
-        "Segunda": feriados.includes("Segunda") ? "FERIADO" : null,
-        "Terça": feriados.includes("Terça") ? "FERIADO" : null,
-        "Quarta": feriados.includes("Quarta") ? "FERIADO" : null,
-        "Quinta": feriados.includes("Quinta") ? "FERIADO" : null,
-        "Sexta": feriados.includes("Sexta") ? "FERIADO" : null
-    };
+
+    let bestSchedule = {};
+    dias.forEach(d => bestSchedule[d] = feriados.includes(d) ? "FERIADO" : null);
     let bestScore = -1;
-    
-    // Backtracking recursivo para buscar a escala com maior pontuação global
+
     function backtrack(diaIdx, currentSchedule, currentUsedPeople) {
         if (diaIdx === dias.length) {
-            // Pontuação da escala atual:
-            // 1. Cada dia preenchido adiciona 100.000 pontos.
-            // 2. Prioriza participantes com menor saldo de plantão acumulado.
             let score = 0;
             for (const dia of dias) {
                 const p = currentSchedule[dia];
                 if (p === "FERIADO") {
                     score += 100000;
                 } else if (p) {
-                    score += 100000 - ativos[p].plantoes;
+                    score += 100000 - ativosRole[p].plantoes;
                 }
             }
             if (score > bestScore) {
@@ -482,10 +487,9 @@ function solveSchedule(disponibilidades, feriados = []) {
             }
             return;
         }
-        
+
         const dia = dias[diaIdx];
 
-        // Se o dia for feriado, define como FERIADO e avança sem alocar participante
         if (feriados.includes(dia)) {
             currentSchedule[dia] = "FERIADO";
             backtrack(diaIdx + 1, currentSchedule, currentUsedPeople);
@@ -495,47 +499,73 @@ function solveSchedule(disponibilidades, feriados = []) {
 
         const candidatos = candidatosPorDia[dia] || [];
         let alocouAlguem = false;
-        
+
+        // 1ª Tentativa: alocar alguém que ainda não foi usado nesta semana
         for (const p of candidatos) {
             if (!currentUsedPeople.has(p)) {
                 currentSchedule[dia] = p;
                 currentUsedPeople.add(p);
-                
+
                 backtrack(diaIdx + 1, currentSchedule, currentUsedPeople);
-                
-                // Desfazer escolha para backtracking
+
                 currentUsedPeople.delete(p);
                 currentSchedule[dia] = null;
                 alocouAlguem = true;
             }
         }
-        
-        // Se ninguém puder ser alocado neste dia por causa de restrições ou se a lista for vazia,
-        // deixa o dia vago e prossegue.
+
+        // 2ª Tentativa (fallback): se a equipe tiver menos pessoas que dias de plantão, permitir repetição
+        if (!alocouAlguem && nomesRole.length < dias.length && candidatos.length > 0) {
+            for (const p of candidatos) {
+                currentSchedule[dia] = p;
+                backtrack(diaIdx + 1, currentSchedule, currentUsedPeople);
+                currentSchedule[dia] = null;
+                alocouAlguem = true;
+            }
+        }
+
+        // Se ninguém pôde ser alocado, deixa o dia vago
         if (!alocouAlguem || candidatos.length === 0) {
             currentSchedule[dia] = null;
             backtrack(diaIdx + 1, currentSchedule, currentUsedPeople);
             currentSchedule[dia] = null;
         }
     }
-    
-    backtrack(0, {
-        "Segunda": null,
-        "Terça": null,
-        "Quarta": null,
-        "Quinta": null,
-        "Sexta": null
-    }, new Set());
-    
-    // Gerar alertas apenas de dias de plantão que ficaram vagos (ignorando feriados)
+
+    const initSchedule = {};
+    dias.forEach(d => initSchedule[d] = null);
+    backtrack(0, initSchedule, new Set());
+
+    const label = tipoDesejado === "servidor" ? "Servidor" : "Terceirizado";
     const alertas = [];
     for (const dia of dias) {
         if (!bestSchedule[dia] && !feriados.includes(dia)) {
-            alertas.push(`Aviso: Não foi possível alocar ninguém para a <strong>${dia}</strong>. Nenhum participante livre estava disponível para este dia.`);
+            alertas.push(`Aviso: Não foi possível alocar nenhum <strong>${label}</strong> para a <strong>${dia}</strong>.`);
         }
     }
-    
+
     return { escala: bestSchedule, alertas };
+}
+
+/**
+ * Resolve a escala completa gerando 2 participantes por dia (1 Servidor + 1 Terceirizado)
+ */
+function solveSchedule(disponibilidades, feriados = []) {
+    const resServidor = solveRoleSchedule("servidor", disponibilidades, feriados);
+    const resTerceirizado = solveRoleSchedule("terceirizado", disponibilidades, feriados);
+
+    const dias = DIAS_PLANTAO;
+    const escalaFinal = {};
+
+    dias.forEach(dia => {
+        escalaFinal[dia] = {
+            servidor: resServidor.escala[dia] || null,
+            terceirizado: resTerceirizado.escala[dia] || null
+        };
+    });
+
+    const alertas = [...resServidor.alertas, ...resTerceirizado.alertas];
+    return { escala: escalaFinal, alertas };
 }
 
 // Execução da geração de escala na Interface
@@ -547,15 +577,15 @@ function gerarEscalaSemanal() {
     }
 
     const inputSemana = document.getElementById("semana-selecionada");
-    semanaPropostaGlobal = inputSemana.value;
+    semanaPropostaGlobal = inputSemana ? inputSemana.value : "";
     if (!semanaPropostaGlobal) {
         showToast("Por favor, selecione a semana do plantão.", "error");
         return;
     }
 
-    // Coletar disponibilidades temporárias da tabela
+    // Coletar disponibilidades da tabela
     const disponibilidades = {};
-    const dias = ["Segunda", "Terça", "Quarta", "Quinta", "Sexta"];
+    const dias = DIAS_PLANTAO;
     
     ativos.forEach(nome => {
         disponibilidades[nome] = [];
@@ -585,30 +615,32 @@ function gerarEscalaSemanal() {
         }
     }
 
-    // Rodar algoritmo considerando disponibilidades e feriados
+    // Rodar algoritmo para Servidores e Terceirizados
     const resultado = solveSchedule(disponibilidades, feriados);
-    escalaPropostaGlobal = { ...resultado.escala };
+    escalaPropostaGlobal = JSON.parse(JSON.stringify(resultado.escala));
 
-    // SALVAMENTO AUTOMÁTICO NO HISTÓRICO: Toda escala gerada é garantida no histórico
+    // Salvar automaticamente no histórico
     salvarEscalaNoHistorico(semanaPropostaGlobal, escalaPropostaGlobal);
 
     // Exibir Alertas se houver
     const containerAlertas = document.getElementById("container-alertas-escala");
     const listaAlertas = document.getElementById("lista-alertas-escala");
     
-    if (resultado.alertas.length > 0) {
-        containerAlertas.classList.remove("hidden");
-        listaAlertas.innerHTML = resultado.alertas.map(a => `<li>${a}</li>`).join("");
-    } else {
-        containerAlertas.classList.add("hidden");
-        listaAlertas.innerHTML = "";
+    if (containerAlertas && listaAlertas) {
+        if (resultado.alertas.length > 0) {
+            containerAlertas.classList.remove("hidden");
+            listaAlertas.innerHTML = resultado.alertas.map(a => `<li>${a}</li>`).join("");
+        } else {
+            containerAlertas.classList.add("hidden");
+            listaAlertas.innerHTML = "";
+        }
     }
 
     // Exibir Escala Resultante
     exibirCardsEscala(semanaPropostaGlobal, escalaPropostaGlobal);
     const secaoResultado = document.getElementById("secao-resultado-escala");
     if (secaoResultado) secaoResultado.scrollIntoView({ behavior: 'smooth' });
-    showToast("Escala gerada e salva com sucesso no Histórico!", "success");
+    showToast("Escala (1 Servidor + 1 Terceirizado) gerada e salva no Histórico!", "success");
 }
 
 function exibirCardsEscala(semana, escala) {
@@ -617,48 +649,82 @@ function exibirCardsEscala(semana, escala) {
     if (!secaoResultado || !cardsContainer) return;
     cardsContainer.innerHTML = "";
 
-    const dias = ["Segunda", "Terça", "Quarta", "Quinta", "Sexta"];
+    const dias = DIAS_PLANTAO;
     const diasComDatas = getDaysOfWeekWithDates(semana) || {};
-    const ativosOrdenados = Object.keys(db.participantes)
-        .filter(nome => db.participantes[nome].ativo)
+
+    const servidoresAtivos = Object.keys(db.participantes)
+        .filter(n => db.participantes[n].ativo && db.participantes[n].tipo === "servidor")
+        .sort();
+
+    const terceirizadosAtivos = Object.keys(db.participantes)
+        .filter(n => db.participantes[n].ativo && db.participantes[n].tipo === "terceirizado")
         .sort();
 
     dias.forEach(dia => {
-        const pessoaSugerida = escala[dia];
-        const ehFeriado = (pessoaSugerida === "FERIADO");
+        const diaData = escala[dia] || {};
+        const servAtual = typeof diaData === "object" ? diaData.servidor : diaData;
+        const tercAtual = typeof diaData === "object" ? diaData.terceirizado : null;
+
+        const ehFeriado = (servAtual === "FERIADO" && tercAtual === "FERIADO");
         const card = document.createElement("div");
 
         if (ehFeriado) {
-            card.className = "p-4 rounded-lg border shadow-sm flex flex-col items-center justify-center text-center transition-all bg-amber-50 border-amber-300 text-amber-900";
-        } else if (pessoaSugerida) {
-            card.className = "p-4 rounded-lg border shadow-sm flex flex-col items-center justify-center text-center transition-all bg-blue-50 border-blue-200";
+            card.className = "p-4 rounded-xl border shadow-sm flex flex-col justify-between text-center transition-all bg-amber-50 border-amber-300 text-amber-900";
         } else {
-            card.className = "p-4 rounded-lg border shadow-sm flex flex-col items-center justify-center text-center transition-all bg-red-50 border-red-200 text-red-700";
+            card.className = "p-4 rounded-xl border border-gray-200 shadow-sm flex flex-col justify-between transition-all bg-white hover:border-blue-300";
         }
-        
-        let optionsHtml = `<option value="">-- VAGO --</option>`;
-        optionsHtml += `<option value="FERIADO" ${ehFeriado ? "selected" : ""}>🏖️ FERIADO (Sem Plantão)</option>`;
-        ativosOrdenados.forEach(nome => {
-            const selected = (nome === pessoaSugerida) ? "selected" : "";
-            const plantoes = db.participantes[nome] ? db.participantes[nome].plantoes : 0;
-            optionsHtml += `<option value="${nome}" ${selected}>${nome} (Saldo: ${plantoes} pl.)</option>`;
+
+        // Opções Servidor
+        let optionsServidor = `<option value="">-- VAGO --</option>`;
+        optionsServidor += `<option value="FERIADO" ${servAtual === "FERIADO" ? "selected" : ""}>🏖️ FERIADO</option>`;
+        servidoresAtivos.forEach(nome => {
+            const selected = (nome === servAtual) ? "selected" : "";
+            const pl = db.participantes[nome] ? db.participantes[nome].plantoes : 0;
+            optionsServidor += `<option value="${nome}" ${selected}>${nome} (${pl} pl.)</option>`;
         });
 
-        let iconClass = "fa-solid fa-circle-xmark text-red-500 text-2xl";
-        if (ehFeriado) {
-            iconClass = "fa-solid fa-umbrella-beach text-amber-500 text-2xl";
-        } else if (pessoaSugerida) {
-            iconClass = "fa-solid fa-user-shield text-blue-600 text-2xl";
-        }
-        
+        // Opções Terceirizado
+        let optionsTerceirizado = `<option value="">-- VAGO --</option>`;
+        optionsTerceirizado += `<option value="FERIADO" ${tercAtual === "FERIADO" ? "selected" : ""}>🏖️ FERIADO</option>`;
+        terceirizadosAtivos.forEach(nome => {
+            const selected = (nome === tercAtual) ? "selected" : "";
+            const pl = db.participantes[nome] ? db.participantes[nome].plantoes : 0;
+            optionsTerceirizado += `<option value="${nome}" ${selected}>${nome} (${pl} pl.)</option>`;
+        });
+
         card.innerHTML = `
-            <span class="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">${diasComDatas[dia] || dia}</span>
-            <div class="my-1.5">
-                <i id="icon-${dia}" class="${iconClass}"></i>
+            <div>
+                <div class="border-b border-gray-100 pb-2 mb-3 flex items-center justify-between">
+                    <span class="text-xs font-extrabold text-blue-700 uppercase tracking-wider">${diasComDatas[dia] || dia}</span>
+                    <span class="text-xs px-2 py-0.5 rounded-full font-bold ${ehFeriado ? 'bg-amber-200 text-amber-900' : 'bg-blue-50 text-blue-800'}">
+                        ${ehFeriado ? 'Feriado' : '2 Plantonistas'}
+                    </span>
+                </div>
+
+                <div class="space-y-3 text-left">
+                    <!-- Slot 1: Servidor -->
+                    <div class="bg-blue-50/70 p-2.5 rounded-lg border border-blue-200">
+                        <label class="block text-xs font-bold text-blue-900 mb-1 flex items-center justify-between">
+                            <span><i class="fa-solid fa-building-columns mr-1 text-blue-600"></i> Servidor:</span>
+                            <span class="text-[10px] font-semibold text-blue-600">${servAtual && servAtual !== 'FERIADO' ? 'Plantão' : ''}</span>
+                        </label>
+                        <select onchange="atualizarEscalaManual('${dia}', 'servidor', this.value)" class="w-full text-xs font-semibold text-gray-900 border border-gray-300 rounded-md p-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white shadow-sm">
+                            ${optionsServidor}
+                        </select>
+                    </div>
+
+                    <!-- Slot 2: Terceirizado -->
+                    <div class="bg-purple-50/70 p-2.5 rounded-lg border border-purple-200">
+                        <label class="block text-xs font-bold text-purple-900 mb-1 flex items-center justify-between">
+                            <span><i class="fa-solid fa-id-badge mr-1 text-purple-600"></i> Terceirizado:</span>
+                            <span class="text-[10px] font-semibold text-purple-600">${tercAtual && tercAtual !== 'FERIADO' ? 'Plantão' : ''}</span>
+                        </label>
+                        <select onchange="atualizarEscalaManual('${dia}', 'terceirizado', this.value)" class="w-full text-xs font-semibold text-gray-900 border border-gray-300 rounded-md p-1.5 focus:outline-none focus:ring-2 focus:ring-purple-500 bg-white shadow-sm">
+                            ${optionsTerceirizado}
+                        </select>
+                    </div>
+                </div>
             </div>
-            <select id="select-escala-${dia}" onchange="atualizarEscalaManual('${dia}', this.value)" class="mt-2 w-full text-sm font-semibold text-gray-900 border border-gray-300 rounded-lg p-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white">
-                ${optionsHtml}
-            </select>
         `;
         cardsContainer.appendChild(card);
     });
@@ -674,7 +740,7 @@ function recuperarUltimaEscalaNaTela() {
             inputSemana.value = ultima.semana;
             atualizarTextoSemana();
         }
-        escalaPropostaGlobal = { ...ultima.escala };
+        escalaPropostaGlobal = JSON.parse(JSON.stringify(ultima.escala));
         semanaPropostaGlobal = ultima.semana;
         exibirCardsEscala(semanaPropostaGlobal, escalaPropostaGlobal);
     }
@@ -688,23 +754,34 @@ function salvarEscalaNoHistorico(semana, escala) {
     const intervaloTexto = datas ? ` (${datas.formatted})` : "";
     const semanaTexto = parts.length === 2 ? `Semana ${parts[1]} de ${parts[0]}${intervaloTexto}` : semana;
 
-    // Verificar se já existe escala cadastrada para essa semana no histórico
+    // Se já existe escala cadastrada para essa semana no histórico: abater saldos prévios
     const existeIndex = db.historico_escalas.findIndex(h => h.semana === semana);
     if (existeIndex !== -1) {
-        // Sobrescrever: primeiro desconta o saldo das pessoas que foram alocadas nessa escala anterior
         const escalaAntiga = db.historico_escalas[existeIndex].escala;
-        Object.values(escalaAntiga).forEach(nome => {
-            if (nome && nome !== "FERIADO" && db.participantes[nome]) {
-                db.participantes[nome].plantoes = Math.max(0, db.participantes[nome].plantoes - 1);
+        Object.values(escalaAntiga).forEach(item => {
+            if (typeof item === "object" && item !== null) {
+                if (item.servidor && item.servidor !== "FERIADO" && db.participantes[item.servidor]) {
+                    db.participantes[item.servidor].plantoes = Math.max(0, db.participantes[item.servidor].plantoes - 1);
+                }
+                if (item.terceirizado && item.terceirizado !== "FERIADO" && db.participantes[item.terceirizado]) {
+                    db.participantes[item.terceirizado].plantoes = Math.max(0, db.participantes[item.terceirizado].plantoes - 1);
+                }
+            } else if (typeof item === "string" && item !== "FERIADO" && db.participantes[item]) {
+                db.participantes[item].plantoes = Math.max(0, db.participantes[item].plantoes - 1);
             }
         });
         db.historico_escalas.splice(existeIndex, 1);
     }
 
-    // Adicionar +1 no saldo das pessoas da nova escala (ignorando dias de feriado e vagos)
-    Object.values(escala).forEach(nome => {
-        if (nome && nome !== "FERIADO" && db.participantes[nome]) {
-            db.participantes[nome].plantoes += 1;
+    // Adicionar +1 no saldo das pessoas escaladas
+    Object.values(escala).forEach(item => {
+        if (typeof item === "object" && item !== null) {
+            if (item.servidor && item.servidor !== "FERIADO" && db.participantes[item.servidor]) {
+                db.participantes[item.servidor].plantoes += 1;
+            }
+            if (item.terceirizado && item.terceirizado !== "FERIADO" && db.participantes[item.terceirizado]) {
+                db.participantes[item.terceirizado].plantoes += 1;
+            }
         }
     });
 
@@ -712,7 +789,7 @@ function salvarEscalaNoHistorico(semana, escala) {
     db.historico_escalas.push({
         semana: semana,
         semanaTexto: semanaTexto,
-        escala: { ...escala }
+        escala: JSON.parse(JSON.stringify(escala))
     });
 
     // Ordenar histórico por semana decrescente
@@ -721,6 +798,7 @@ function salvarEscalaNoHistorico(semana, escala) {
     saveData();
     renderHistorico();
     renderParticipantes();
+    renderDisponibilidades();
     return true;
 }
 
@@ -731,7 +809,49 @@ function confirmarESalvarEscala() {
     }
 
     salvarEscalaNoHistorico(semanaPropostaGlobal, escalaPropostaGlobal);
-    showToast("Escala confirmada e garantida no Histórico!", "success");
+    showToast("Escala confirmada e salva no Histórico!", "success");
+}
+
+function atualizarEscalaManual(dia, tipo, novoNome) {
+    if (!escalaPropostaGlobal || !semanaPropostaGlobal) return;
+
+    if (!escalaPropostaGlobal[dia]) {
+        escalaPropostaGlobal[dia] = { servidor: null, terceirizado: null };
+    }
+
+    const antigoNome = escalaPropostaGlobal[dia][tipo];
+    if (antigoNome === novoNome) return;
+
+    // Atualizar no objeto em memória
+    escalaPropostaGlobal[dia][tipo] = novoNome || null;
+
+    // Sincronizar saldos de plantões
+    if (antigoNome && antigoNome !== "FERIADO" && db.participantes[antigoNome]) {
+        db.participantes[antigoNome].plantoes = Math.max(0, db.participantes[antigoNome].plantoes - 1);
+    }
+    if (novoNome && novoNome !== "FERIADO" && db.participantes[novoNome]) {
+        db.participantes[novoNome].plantoes += 1;
+    }
+
+    // Sincronizar no histórico gravado
+    const histItem = db.historico_escalas.find(h => h.semana === semanaPropostaGlobal);
+    if (histItem) {
+        if (!histItem.escala[dia] || typeof histItem.escala[dia] !== "object") {
+            histItem.escala[dia] = {};
+        }
+        histItem.escala[dia][tipo] = novoNome || null;
+    } else {
+        salvarEscalaNoHistorico(semanaPropostaGlobal, escalaPropostaGlobal);
+    }
+
+    saveData();
+    renderHistorico();
+    renderParticipantes();
+    renderDisponibilidades();
+
+    const labelTipo = tipo === "servidor" ? "Servidor" : "Terceirizado";
+    const labelFeedback = (novoNome === "FERIADO") ? "FERIADO" : (novoNome || "VAGO");
+    showToast(`${labelTipo} de ${dia} alterado para: ${labelFeedback}!`, "success");
 }
 
 // --- EXPORTAÇÃO PARA EXCEL (SHEETJS) ---
@@ -744,42 +864,52 @@ function exportarEscalaExcel() {
     const intervaloTexto = datas ? ` (${datas.formatted})` : "";
     const semanaTexto = parts.length === 2 ? `Semana ${parts[1]} de ${parts[0]}${intervaloTexto}` : semanaPropostaGlobal;
 
+    const dias = DIAS_PLANTAO;
     const diasComDatas = getDaysOfWeekWithDates(semanaPropostaGlobal) || {};
 
     function formatarPessoaExcel(val) {
-        if (val === "FERIADO") return "FERIADO (Sem Plantão)";
+        if (val === "FERIADO") return "FERIADO";
         return val || "VAGO";
     }
 
-    // Criar array de dados para a planilha
+    // Montar linhas da planilha
     const dadosExcel = [
         ["ESCALA DE PLANTÃO NOTURNO"],
         [semanaTexto.toUpperCase()],
+        ["Regra: Segunda a Quinta-feira | 1 Servidor e 1 Terceirizado por dia"],
         [],
-        ["Dia da Semana", "Profissional Escalado"],
-        [diasComDatas["Segunda"] || "Segunda-feira", formatarPessoaExcel(escalaPropostaGlobal["Segunda"])],
-        [diasComDatas["Terça"] || "Terça-feira", formatarPessoaExcel(escalaPropostaGlobal["Terça"])],
-        [diasComDatas["Quarta"] || "Quarta-feira", formatarPessoaExcel(escalaPropostaGlobal["Quarta"])],
-        [diasComDatas["Quinta"] || "Quinta-feira", formatarPessoaExcel(escalaPropostaGlobal["Quinta"])],
-        [diasComDatas["Sexta"] || "Sexta-feira", formatarPessoaExcel(escalaPropostaGlobal["Sexta"])]
+        ["Dia da Semana", "Data de Referência", "Servidor", "Terceirizado"]
     ];
 
-    // Criar workbook e worksheet do SheetJS
+    dias.forEach(dia => {
+        const diaData = escalaPropostaGlobal[dia] || {};
+        const serv = typeof diaData === "object" ? diaData.servidor : diaData;
+        const terc = typeof diaData === "object" ? diaData.terceirizado : "";
+        const labelData = diasComDatas[dia] || dia;
+
+        dadosExcel.push([
+            dia,
+            labelData,
+            formatarPessoaExcel(serv),
+            formatarPessoaExcel(terc)
+        ]);
+    });
+
     const wb = XLSX.utils.book_new();
     const ws = XLSX.utils.aoa_to_sheet(dadosExcel);
 
-    // Ajustar larguras das colunas
     ws["!cols"] = [
-        { wch: 20 },
-        { wch: 30 }
+        { wch: 18 },
+        { wch: 26 },
+        { wch: 28 },
+        { wch: 28 }
     ];
 
     XLSX.utils.book_append_sheet(wb, ws, "Escala");
     
-    // Nome do arquivo
     const nomeArquivo = `escala_plantao_${semanaPropostaGlobal}.xlsx`;
     XLSX.writeFile(wb, nomeArquivo);
-    showToast(`Arquivo Excel exportado com sucesso: ${nomeArquivo}`, "success");
+    showToast(`Planilha Excel exportada: ${nomeArquivo}`, "success");
 }
 
 // --- RENDERIZAÇÃO DA INTERFACE (DOM) ---
@@ -793,7 +923,8 @@ function renderAll() {
 function renderParticipantes() {
     const listBody = document.getElementById("corpo-lista-participantes");
     const avisoVazio = document.getElementById("aviso-lista-vazia");
-    
+    if (!listBody || !avisoVazio) return;
+
     listBody.innerHTML = "";
     const nomes = Object.keys(db.participantes).sort();
 
@@ -806,14 +937,27 @@ function renderParticipantes() {
 
     nomes.forEach(nome => {
         const p = db.participantes[nome];
+        const ehServidor = (p.tipo === "servidor");
+        const nomeEscapado = nome.replace(/'/g, "\\'");
         const tr = document.createElement("tr");
         tr.className = "hover:bg-gray-50 transition-colors";
         
         tr.innerHTML = `
             <td class="px-6 py-4 whitespace-nowrap text-sm font-bold text-gray-900">${nome}</td>
+            <td class="px-6 py-4 whitespace-nowrap text-center">
+                <button onclick="toggleParticipantTipo('${nomeEscapado}')" title="Clique para alternar categoria" class="px-3 py-1 text-xs font-bold rounded-full border transition-all inline-flex items-center gap-1.5 cursor-pointer shadow-sm ${
+                    ehServidor
+                    ? "bg-blue-100 text-blue-800 border-blue-200 hover:bg-blue-200"
+                    : "bg-purple-100 text-purple-800 border-purple-200 hover:bg-purple-200"
+                }">
+                    <i class="fa-solid ${ehServidor ? 'fa-building-columns' : 'fa-id-badge'}"></i>
+                    <span>${ehServidor ? 'Servidor' : 'Terceirizado'}</span>
+                    <i class="fa-solid fa-repeat text-[10px] ml-0.5 opacity-70"></i>
+                </button>
+            </td>
             <td class="px-6 py-4 whitespace-nowrap text-center text-sm font-bold text-blue-600">${p.plantoes}</td>
             <td class="px-6 py-4 whitespace-nowrap text-center">
-                <button onclick="toggleParticipantStatus('${nome}', ${!p.ativo})" class="px-3 py-1 text-xs font-bold rounded-full border transition-all ${
+                <button onclick="toggleParticipantStatus('${nomeEscapado}', ${!p.ativo})" class="px-3 py-1 text-xs font-bold rounded-full border transition-all ${
                     p.ativo 
                     ? "bg-green-100 text-green-800 border-green-200 hover:bg-green-200" 
                     : "bg-gray-100 text-gray-800 border-gray-200 hover:bg-gray-200"
@@ -821,8 +965,12 @@ function renderParticipantes() {
                     ${p.ativo ? '<i class="fa-solid fa-circle-check mr-1"></i>Ativo' : '<i class="fa-solid fa-circle-minus mr-1"></i>Inativo'}
                 </button>
             </td>
-            <td class="px-6 py-4 whitespace-nowrap text-center text-sm">
-                <button onclick="confirmRemoveParticipant('${nome}')" class="text-red-500 hover:text-red-700 font-semibold inline-flex items-center space-x-1">
+            <td class="px-6 py-4 whitespace-nowrap text-center text-sm space-x-3">
+                <button onclick="abrirModalEditarParticipante('${nomeEscapado}')" class="text-blue-600 hover:text-blue-800 font-semibold inline-flex items-center space-x-1 transition-colors" title="Editar nome do participante">
+                    <i class="fa-solid fa-user-pen"></i>
+                    <span>Editar</span>
+                </button>
+                <button onclick="confirmRemoveParticipant('${nomeEscapado}')" class="text-red-500 hover:text-red-700 font-semibold inline-flex items-center space-x-1 transition-colors" title="Excluir participante">
                     <i class="fa-solid fa-trash"></i>
                     <span>Excluir</span>
                 </button>
@@ -830,6 +978,96 @@ function renderParticipantes() {
         `;
         listBody.appendChild(tr);
     });
+}
+
+function abrirModalEditarParticipante(nome) {
+    const modal = document.getElementById("modal-editar-participante");
+    const inputAntigo = document.getElementById("edit-nome-antigo");
+    const inputNome = document.getElementById("input-edit-nome");
+    if (!modal || !inputAntigo || !inputNome) return;
+
+    inputAntigo.value = nome;
+    inputNome.value = nome;
+    modal.classList.remove("hidden");
+    setTimeout(() => {
+        inputNome.focus();
+        inputNome.select();
+    }, 50);
+}
+
+function fecharModalEditarParticipante() {
+    const modal = document.getElementById("modal-editar-participante");
+    if (modal) modal.classList.add("hidden");
+}
+
+function salvarEdicaoNomeParticipante(event) {
+    if (event) event.preventDefault();
+    const inputAntigo = document.getElementById("edit-nome-antigo");
+    const inputNovo = document.getElementById("input-edit-nome");
+    if (!inputAntigo || !inputNovo) return;
+
+    const antigoNome = inputAntigo.value;
+    const novoNome = inputNovo.value.trim();
+
+    if (!novoNome) {
+        showToast("Digite um nome válido para o participante.", "warning");
+        return;
+    }
+    if (novoNome === antigoNome) {
+        fecharModalEditarParticipante();
+        return;
+    }
+    if (db.participantes[novoNome]) {
+        showToast(`Já existe outro participante cadastrado com o nome "${novoNome}".`, "error");
+        return;
+    }
+
+    editarNomeParticipante(antigoNome, novoNome);
+    fecharModalEditarParticipante();
+}
+
+function editarNomeParticipante(antigoNome, novoNome) {
+    if (!db.participantes[antigoNome]) return;
+
+    // 1. Preservar dados e transferir para a nova chave
+    db.participantes[novoNome] = { ...db.participantes[antigoNome] };
+    delete db.participantes[antigoNome];
+
+    // 2. Atualizar na escala proposta atual em memória (se houver)
+    if (escalaPropostaGlobal && typeof escalaPropostaGlobal === "object") {
+        Object.keys(escalaPropostaGlobal).forEach(dia => {
+            const slot = escalaPropostaGlobal[dia];
+            if (typeof slot === "object" && slot !== null) {
+                if (slot.servidor === antigoNome) slot.servidor = novoNome;
+                if (slot.terceirizado === antigoNome) slot.terceirizado = novoNome;
+            } else if (slot === antigoNome) {
+                escalaPropostaGlobal[dia] = novoNome;
+            }
+        });
+    }
+
+    // 3. Atualizar no histórico de escalas salvas
+    if (Array.isArray(db.historico_escalas)) {
+        db.historico_escalas.forEach(h => {
+            if (h.escala && typeof h.escala === "object") {
+                Object.keys(h.escala).forEach(dia => {
+                    const slot = h.escala[dia];
+                    if (typeof slot === "object" && slot !== null) {
+                        if (slot.servidor === antigoNome) slot.servidor = novoNome;
+                        if (slot.terceirizado === antigoNome) slot.terceirizado = novoNome;
+                    } else if (slot === antigoNome) {
+                        h.escala[dia] = novoNome;
+                    }
+                });
+            }
+        });
+    }
+
+    // 4. Salvar e re-renderizar todas as telas
+    saveData();
+    renderAll();
+    recuperarUltimaEscalaNaTela();
+    showToast(`Nome alterado de "${antigoNome}" para "${novoNome}" com sucesso!`, "success");
 }
 
 function confirmRemoveParticipant(nome) {
@@ -841,29 +1079,40 @@ function confirmRemoveParticipant(nome) {
 function renderDisponibilidades() {
     const listBody = document.getElementById("lista-disponibilidades");
     const avisoVazio = document.getElementById("aviso-sem-participantes");
+    const btnGerar = document.getElementById("gerar-escala-btn");
+    if (!listBody || !avisoVazio) return;
     
     listBody.innerHTML = "";
     
-    // Obter apenas participantes ativos
     const ativos = Object.keys(db.participantes)
         .filter(nome => db.participantes[nome].ativo)
-        .sort();
+        .sort((a, b) => {
+            const tipoA = db.participantes[a].tipo || "servidor";
+            const tipoB = db.participantes[b].tipo || "servidor";
+            if (tipoA !== tipoB) return tipoA.localeCompare(tipoB);
+            return a.localeCompare(b);
+        });
 
     if (ativos.length === 0) {
         avisoVazio.classList.remove("hidden");
-        document.getElementById("gerar-escala-btn").disabled = true;
-        document.getElementById("gerar-escala-btn").classList.add("opacity-50", "cursor-not-allowed");
+        if (btnGerar) {
+            btnGerar.disabled = true;
+            btnGerar.classList.add("opacity-50", "cursor-not-allowed");
+        }
         return;
     } else {
         avisoVazio.classList.add("hidden");
-        document.getElementById("gerar-escala-btn").disabled = false;
-        document.getElementById("gerar-escala-btn").classList.remove("opacity-50", "cursor-not-allowed");
+        if (btnGerar) {
+            btnGerar.disabled = false;
+            btnGerar.classList.remove("opacity-50", "cursor-not-allowed");
+        }
     }
 
-    const dias = ["Segunda", "Terça", "Quarta", "Quinta", "Sexta"];
+    const dias = DIAS_PLANTAO;
 
     ativos.forEach(nome => {
         const p = db.participantes[nome];
+        const ehServidor = (p.tipo === "servidor");
         const tr = document.createElement("tr");
         tr.className = "hover:bg-gray-50 transition-colors";
         
@@ -879,8 +1128,16 @@ function renderDisponibilidades() {
 
         tr.innerHTML = `
             <td class="px-6 py-4 whitespace-nowrap text-sm font-bold text-gray-900">${nome}</td>
+            <td class="px-6 py-4 whitespace-nowrap text-center">
+                <span class="px-2.5 py-0.5 rounded-full text-xs font-bold inline-flex items-center gap-1 ${
+                    ehServidor ? 'bg-blue-100 text-blue-800' : 'bg-purple-100 text-purple-800'
+                }">
+                    <i class="fa-solid ${ehServidor ? 'fa-building-columns' : 'fa-id-badge'} text-[10px]"></i>
+                    ${ehServidor ? 'Servidor' : 'Terceirizado'}
+                </span>
+            </td>
             ${htmlCheckboxes}
-            <td class="px-6 py-4 whitespace-nowrap text-center text-sm font-semibold text-gray-500">${p.plantoes} plantões</td>
+            <td class="px-6 py-4 whitespace-nowrap text-center text-sm font-semibold text-gray-600">${p.plantoes} plantões</td>
         `;
         listBody.appendChild(tr);
     });
@@ -889,6 +1146,7 @@ function renderDisponibilidades() {
 function renderHistorico() {
     const container = document.getElementById("lista-historico-escalas");
     const avisoVazio = document.getElementById("aviso-historico-vazio");
+    if (!container || !avisoVazio) return;
     
     container.innerHTML = "";
     
@@ -899,7 +1157,7 @@ function renderHistorico() {
         avisoVazio.classList.add("hidden");
     }
 
-    const dias = ["Segunda", "Terça", "Quarta", "Quinta", "Sexta"];
+    const dias = DIAS_PLANTAO;
 
     db.historico_escalas.forEach((h, index) => {
         const div = document.createElement("div");
@@ -907,25 +1165,36 @@ function renderHistorico() {
         
         const diasComDatas = getDaysOfWeekWithDates(h.semana) || {};
         
-        // Gerar linhas da tabela daquela semana
         let linhasTabela = "";
         dias.forEach(dia => {
-            const pessoa = h.escala[dia];
-            let pessoaHtml = "";
-            if (pessoa === "FERIADO") {
-                pessoaHtml = '<span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-100 text-amber-800 border border-amber-300"><i class="fa-solid fa-umbrella-beach text-xs"></i> FERIADO (Sem Plantão)</span>';
-            } else if (pessoa) {
-                pessoaHtml = `<i class="fa-solid fa-user-shield text-blue-500 mr-1.5 text-xs"></i>${pessoa}`;
-            } else {
-                pessoaHtml = '<i class="fa-solid fa-circle-xmark mr-1.5 text-xs"></i>VAGO';
+            const item = h.escala[dia];
+            let servNome = "";
+            let tercNome = "";
+
+            if (typeof item === "object" && item !== null) {
+                servNome = item.servidor;
+                tercNome = item.terceirizado;
+            } else if (typeof item === "string") {
+                servNome = item;
+                tercNome = "—";
+            }
+
+            function formatBadge(nome, tipo) {
+                if (nome === "FERIADO") {
+                    return '<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-bold bg-amber-100 text-amber-800 border border-amber-300"><i class="fa-solid fa-umbrella-beach text-xs"></i> Feriado</span>';
+                }
+                if (nome) {
+                    const icon = tipo === "servidor" ? "fa-building-columns text-blue-600" : "fa-id-badge text-purple-600";
+                    return `<span class="inline-flex items-center gap-1.5 font-bold text-gray-900"><i class="fa-solid ${icon} text-xs"></i>${nome}</span>`;
+                }
+                return '<span class="text-red-500 font-bold text-xs"><i class="fa-solid fa-circle-xmark mr-1"></i>VAGO</span>';
             }
 
             linhasTabela += `
-                <tr class="border-b border-gray-100 last:border-0">
-                    <td class="py-2.5 font-bold text-sm text-gray-700">${diasComDatas[dia] || dia}</td>
-                    <td class="py-2.5 text-sm font-semibold ${pessoa && pessoa !== 'FERIADO' ? "text-gray-900" : (pessoa === 'FERIADO' ? "text-amber-800" : "text-red-500")}">
-                        ${pessoaHtml}
-                    </td>
+                <tr class="border-b border-gray-100 last:border-0 hover:bg-white/60 transition-colors">
+                    <td class="py-2.5 font-bold text-xs text-gray-700 w-1/3">${diasComDatas[dia] || dia}</td>
+                    <td class="py-2.5 text-xs w-1/3">${formatBadge(servNome, "servidor")}</td>
+                    <td class="py-2.5 text-xs w-1/3">${formatBadge(tercNome, "terceirizado")}</td>
                 </tr>
             `;
         });
@@ -941,7 +1210,14 @@ function renderHistorico() {
                     <span>Apagar Escala</span>
                 </button>
             </div>
-            <table class="w-full">
+            <table class="w-full text-left">
+                <thead>
+                    <tr class="text-[11px] uppercase tracking-wider text-gray-400 font-bold border-b border-gray-200">
+                        <th class="pb-1.5">Dia</th>
+                        <th class="pb-1.5">Servidor</th>
+                        <th class="pb-1.5">Terceirizado</th>
+                    </tr>
+                </thead>
                 <tbody>
                     ${linhasTabela}
                 </tbody>
@@ -952,17 +1228,22 @@ function renderHistorico() {
 }
 
 function confirmDeletarHistorico(index) {
-    if (confirm("Você deseja realmente excluir esta escala? Os plantões contabilizados para os profissionais serão deduzidos de seus saldos acumulados.")) {
+    if (confirm("Você deseja realmente excluir esta escala? Os plantões contabilizados para ambos os profissionais serão deduzidos de seus saldos acumulados.")) {
         const item = db.historico_escalas[index];
         
-        // Deduzir plantão de quem participou nessa escala (ignorando feriados)
-        Object.values(item.escala).forEach(nome => {
-            if (nome && nome !== "FERIADO" && db.participantes[nome]) {
-                db.participantes[nome].plantoes = Math.max(0, db.participantes[nome].plantoes - 1);
+        Object.values(item.escala).forEach(ponto => {
+            if (typeof ponto === "object" && ponto !== null) {
+                if (ponto.servidor && ponto.servidor !== "FERIADO" && db.participantes[ponto.servidor]) {
+                    db.participantes[ponto.servidor].plantoes = Math.max(0, db.participantes[ponto.servidor].plantoes - 1);
+                }
+                if (ponto.terceirizado && ponto.terceirizado !== "FERIADO" && db.participantes[ponto.terceirizado]) {
+                    db.participantes[ponto.terceirizado].plantoes = Math.max(0, db.participantes[ponto.terceirizado].plantoes - 1);
+                }
+            } else if (typeof ponto === "string" && ponto !== "FERIADO" && db.participantes[ponto]) {
+                db.participantes[ponto].plantoes = Math.max(0, db.participantes[ponto].plantoes - 1);
             }
         });
 
-        // Remover do histórico
         db.historico_escalas.splice(index, 1);
         saveData();
         renderAll();
@@ -970,7 +1251,55 @@ function confirmDeletarHistorico(index) {
     }
 }
 
-// --- UTILS ---
+// --- UTILS DE DATA E SEMANA (SEGUNDA A QUINTA) ---
+
+function getDatesOfWeek(weekStr) {
+    if (!weekStr) return null;
+    const parts = weekStr.split("-W");
+    if (parts.length !== 2) return null;
+    
+    const year = parseInt(parts[0], 10);
+    const week = parseInt(parts[1], 10);
+    
+    const jan4 = new Date(year, 0, 4);
+    const day = jan4.getDay() || 7;
+    const monW1 = new Date(jan4.getTime());
+    monW1.setDate(jan4.getDate() - (day - 1));
+    
+    const monday = new Date(monW1.getTime());
+    monday.setDate(monW1.getDate() + (week - 1) * 7);
+    
+    const thursday = new Date(monday.getTime());
+    thursday.setDate(monday.getDate() + 3);
+    
+    return {
+        monday: monday,
+        thursday: thursday,
+        formatted: `do dia ${formatDateShort(monday)} ao dia ${formatDateShort(thursday)}`
+    };
+}
+
+function formatDateShort(date) {
+    const d = String(date.getDate()).padStart(2, '0');
+    const m = String(date.getMonth() + 1).padStart(2, '0');
+    const y = date.getFullYear();
+    return `${d}/${m}/${y}`;
+}
+
+function getDaysOfWeekWithDates(weekStr) {
+    const dates = getDatesOfWeek(weekStr);
+    if (!dates) return null;
+    
+    const dias = DIAS_PLANTAO;
+    const resultado = {};
+    
+    for (let i = 0; i < dias.length; i++) {
+        const d = new Date(dates.monday.getTime());
+        d.setDate(dates.monday.getDate() + i);
+        resultado[dias[i]] = `${dias[i]} - ${formatDateShort(d)}`;
+    }
+    return resultado;
+}
 
 function inicializarDataSemana() {
     const inputSemana = document.getElementById("semana-selecionada");
@@ -978,7 +1307,6 @@ function inicializarDataSemana() {
         const hoje = new Date();
         const ano = hoje.getFullYear();
         
-        // Calcular número da semana ISO
         const target = new Date(hoje.valueOf());
         const dayNr = (hoje.getDay() + 6) % 7;
         target.setDate(target.getDate() - dayNr + 3);
@@ -994,12 +1322,262 @@ function inicializarDataSemana() {
         atualizarTextoSemana();
     }
     
-    // Data textual no header
     const dataHeader = document.getElementById("data-atual");
     if (dataHeader) {
         const opcoes = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
         dataHeader.textContent = new Date().toLocaleDateString('pt-BR', opcoes);
     }
+}
+
+let calAnoAtual = new Date().getFullYear();
+let calMesAtual = new Date().getMonth();
+
+function atualizarTextoSemana() {
+    const inputSemana = document.getElementById("semana-selecionada");
+    const textoIntervalo = document.getElementById("texto-intervalo-semana");
+    const labelDisplay = document.getElementById("label-semana-display");
+    
+    if (inputSemana) {
+        const val = inputSemana.value; // ex: 2026-W38
+        const datas = getDatesOfWeek(val);
+        
+        if (labelDisplay) {
+            const parts = val.split("-W");
+            if (parts.length === 2) {
+                labelDisplay.textContent = `Semana ${parseInt(parts[1], 10)}, ${parts[0]}`;
+            } else {
+                labelDisplay.textContent = val || "Selecione a Semana";
+            }
+        }
+        
+        if (textoIntervalo) {
+            if (datas) {
+                textoIntervalo.innerHTML = `<i class="fa-regular fa-calendar-days mr-1.5"></i> ${datas.formatted}`;
+                textoIntervalo.classList.remove("hidden");
+            } else {
+                textoIntervalo.classList.add("hidden");
+            }
+        }
+    }
+}
+
+// --- POPUP DO CALENDÁRIO VISUAL DE SEMANAS ---
+
+function alternarCalendarioSemana(event) {
+    if (event) event.stopPropagation();
+    const popup = document.getElementById("popup-calendario-semana");
+    if (!popup) return;
+
+    if (popup.classList.contains("hidden")) {
+        abrirCalendarioSemana();
+    } else {
+        fecharCalendarioSemana();
+    }
+}
+
+function abrirCalendarioSemana() {
+    const popup = document.getElementById("popup-calendario-semana");
+    if (!popup) return;
+
+    const inputSemana = document.getElementById("semana-selecionada");
+    if (inputSemana && inputSemana.value) {
+        const datas = getDatesOfWeek(inputSemana.value);
+        if (datas && datas.monday) {
+            calAnoAtual = datas.monday.getFullYear();
+            calMesAtual = datas.monday.getMonth();
+        }
+    }
+
+    renderizarCalendarioPopup(calAnoAtual, calMesAtual);
+    popup.classList.remove("hidden");
+}
+
+function fecharCalendarioSemana() {
+    const popup = document.getElementById("popup-calendario-semana");
+    if (popup) popup.classList.add("hidden");
+}
+
+function mudarMesCalendario(delta) {
+    calMesAtual += delta;
+    if (calMesAtual > 11) {
+        calMesAtual = 0;
+        calAnoAtual++;
+    } else if (calMesAtual < 0) {
+        calMesAtual = 11;
+        calAnoAtual--;
+    }
+    renderizarCalendarioPopup(calAnoAtual, calMesAtual);
+}
+
+function getIsoWeekFromDate(d) {
+    const target = new Date(d.valueOf());
+    const dayNr = (d.getDay() + 6) % 7;
+    target.setDate(target.getDate() - dayNr + 3);
+    const firstThursday = target.valueOf();
+    target.setMonth(0, 1);
+    if (target.getDay() !== 4) {
+        target.setMonth(0, 1 + ((4 - target.getDay()) + 7) % 7);
+    }
+    const weekNum = 1 + Math.ceil((firstThursday - target) / 604800000);
+    const ano = target.getFullYear();
+    return {
+        weekNum: weekNum,
+        ano: ano,
+        semanaStr: `${ano}-W${String(weekNum).padStart(2, "0")}`
+    };
+}
+
+function renderizarCalendarioPopup(ano, mes) {
+    const titulo = document.getElementById("calendario-titulo-mes-ano");
+    const corpo = document.getElementById("calendario-corpo-dias");
+    if (!titulo || !corpo) return;
+
+    const nomesMeses = [
+        "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
+        "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"
+    ];
+    titulo.textContent = `${nomesMeses[mes]} de ${ano}`;
+
+    corpo.innerHTML = "";
+
+    const primeiroDiaMes = new Date(ano, mes, 1);
+    const ultimoDiaMes = new Date(ano, mes + 1, 0);
+
+    let diaSemanaPrimeiro = primeiroDiaMes.getDay();
+    if (diaSemanaPrimeiro === 0) diaSemanaPrimeiro = 7; // Domingo vira 7
+
+    const inicioCalendario = new Date(ano, mes, 1);
+    inicioCalendario.setDate(primeiroDiaMes.getDate() - (diaSemanaPrimeiro - 1));
+
+    const inputSemana = document.getElementById("semana-selecionada");
+    const semanaSelecionadaAtual = inputSemana ? inputSemana.value : "";
+
+    let cursorData = new Date(inicioCalendario.getTime());
+    let semanasRenderizadas = 0;
+
+    while (semanasRenderizadas < 6) {
+        if (cursorData > ultimoDiaMes && cursorData.getDay() === 1 && semanasRenderizadas >= 4) {
+            break;
+        }
+
+        const semanaIsoInfo = getIsoWeekFromDate(cursorData);
+        const ehSemanaSelecionada = (semanaIsoInfo.semanaStr === semanaSelecionadaAtual);
+
+        const tr = document.createElement("tr");
+        tr.className = `group cursor-pointer rounded-lg transition-all ${
+            ehSemanaSelecionada 
+            ? "bg-blue-100 font-bold text-blue-900 border border-blue-300" 
+            : "hover:bg-blue-50 text-gray-700"
+        }`;
+        tr.title = `Clique para selecionar a Semana ${semanaIsoInfo.weekNum}`;
+        tr.onclick = (e) => {
+            e.stopPropagation();
+            selecionarSemanaPeloCalendario(semanaIsoInfo.semanaStr);
+        };
+
+        // Coluna número da semana
+        let htmlLinha = `
+            <td class="py-2 px-1 text-[11px] font-extrabold ${ehSemanaSelecionada ? 'text-blue-700' : 'text-blue-500 group-hover:text-blue-700'}">
+                ${semanaIsoInfo.weekNum}
+            </td>
+        `;
+
+        // 7 dias da semana (Segunda a Domingo)
+        for (let d = 0; d < 7; d++) {
+            const ehMesAtual = (cursorData.getMonth() === mes);
+            const ehPlantao = (d < 4); // Seg, Ter, Qua, Qui
+            const diaNum = cursorData.getDate();
+
+            let classesDia = "py-2 px-1 text-xs ";
+            if (!ehMesAtual) {
+                classesDia += "text-gray-300 ";
+            } else if (ehPlantao) {
+                classesDia += ehSemanaSelecionada ? "font-extrabold text-blue-900 " : "font-semibold text-gray-800 ";
+            } else {
+                classesDia += "text-gray-400 ";
+            }
+
+            htmlLinha += `<td class="${classesDia}">${diaNum}</td>`;
+            cursorData.setDate(cursorData.getDate() + 1);
+        }
+
+        tr.innerHTML = htmlLinha;
+        corpo.appendChild(tr);
+        semanasRenderizadas++;
+    }
+}
+
+function selecionarSemanaPeloCalendario(semanaStr) {
+    const inputSemana = document.getElementById("semana-selecionada");
+    if (inputSemana) {
+        inputSemana.value = semanaStr;
+        atualizarTextoSemana();
+    }
+    fecharCalendarioSemana();
+
+    // Se já houver escala salva no histórico para esta semana, exibe nos cards da tela
+    const escalaSalva = db.historico_escalas.find(h => h.semana === semanaStr);
+    if (escalaSalva) {
+        escalaPropostaGlobal = JSON.parse(JSON.stringify(escalaSalva.escala));
+        semanaPropostaGlobal = escalaSalva.semana;
+        exibirCardsEscala(semanaPropostaGlobal, escalaPropostaGlobal);
+    }
+}
+
+function selecionarSemanaHoje() {
+    const hoje = new Date();
+    const info = getIsoWeekFromDate(hoje);
+    selecionarSemanaPeloCalendario(info.semanaStr);
+}
+
+// Fechar popup se clicar fora dele
+document.addEventListener("click", (e) => {
+    const popup = document.getElementById("popup-calendario-semana");
+    const container = document.getElementById("container-seletor-semana");
+    const badge = document.getElementById("texto-intervalo-semana");
+    if (popup && !popup.classList.contains("hidden")) {
+        if (container && !container.contains(e.target) && badge && !badge.contains(e.target)) {
+            fecharCalendarioSemana();
+        }
+    }
+});
+
+function salvarDisponibilidades() {
+    const ativos = Object.keys(db.participantes).filter(nome => db.participantes[nome].ativo);
+    const dias = DIAS_PLANTAO;
+    
+    ativos.forEach(nome => {
+        const disp = [];
+        dias.forEach(dia => {
+            const check = document.getElementById(`disp-${nome}-${dia}`);
+            if (check && check.checked) {
+                disp.push(dia);
+            }
+        });
+        db.participantes[nome].disponibilidade = disp;
+    });
+    
+    saveData();
+    showToast("Disponibilidades salvas com sucesso!", "success");
+}
+
+function limparDisponibilidades() {
+    const ativos = Object.keys(db.participantes).filter(nome => db.participantes[nome].ativo);
+    const dias = DIAS_PLANTAO;
+    
+    ativos.forEach(nome => {
+        dias.forEach(dia => {
+            const check = document.getElementById(`disp-${nome}-${dia}`);
+            if (check) check.checked = false;
+        });
+    });
+
+    dias.forEach(dia => {
+        const checkFeriado = document.getElementById(`feriado-${dia}`);
+        if (checkFeriado) checkFeriado.checked = false;
+    });
+
+    showToast("Campos limpos! Suas marcações salvas anteriormente continuam intactas no banco.", "success");
 }
 
 function switchTab(tabId) {
@@ -1009,11 +1587,11 @@ function switchTab(tabId) {
         const btn = document.getElementById(`tab-${t}-btn`);
         
         if (t === tabId) {
-            section.classList.remove("hidden");
-            btn.className = "tab-active py-4 px-1 border-b-2 font-medium text-sm flex items-center space-x-2 transition-all";
+            if (section) section.classList.remove("hidden");
+            if (btn) btn.className = "tab-active py-4 px-1 border-b-2 font-medium text-sm flex items-center space-x-2 transition-all";
         } else {
-            section.classList.add("hidden");
-            btn.className = "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 py-4 px-1 border-b-2 font-medium text-sm flex items-center space-x-2 transition-all";
+            if (section) section.classList.add("hidden");
+            if (btn) btn.className = "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 py-4 px-1 border-b-2 font-medium text-sm flex items-center space-x-2 transition-all";
         }
     });
 }
@@ -1031,16 +1609,17 @@ function showToast(mensagem, tipo = "success") {
     } else if (tipo === "error") {
         toast.classList.add("bg-red-600", "border-red-500");
         toast.innerHTML = `<i class="fa-solid fa-circle-exclamation"></i> <span>${mensagem}</span>`;
+    } else {
+        toast.classList.add("bg-blue-600", "border-blue-500");
+        toast.innerHTML = `<i class="fa-solid fa-circle-info"></i> <span>${mensagem}</span>`;
     }
 
     container.appendChild(toast);
 
-    // Fade-in
     setTimeout(() => {
         toast.classList.remove("translate-y-2", "opacity-0");
     }, 10);
 
-    // Auto-destruir depois de 4 segundos
     setTimeout(() => {
         toast.classList.add("opacity-0");
         setTimeout(() => {
@@ -1049,7 +1628,7 @@ function showToast(mensagem, tipo = "success") {
     }, 4000);
 }
 
-// --- FUNÇÕES DE IMPORTAR/EXPORTAR BACKUP JSON ---
+// --- IMPORTAR / EXPORTAR BACKUP JSON ---
 
 function downloadBackup() {
     const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(db, null, 2));
@@ -1070,6 +1649,10 @@ function uploadBackup(event) {
             if (backupDb && typeof backupDb === 'object' && backupDb.participantes && backupDb.historico_escalas) {
                 if (confirm("Você deseja restaurar estes dados de backup? Os participantes e históricos atuais serão totalmente substituídos.")) {
                     db = backupDb;
+                    Object.keys(db.participantes).forEach(nome => {
+                        if (!db.participantes[nome].tipo) db.participantes[nome].tipo = "servidor";
+                        if (!db.participantes[nome].disponibilidade) db.participantes[nome].disponibilidade = [...DIAS_PLANTAO];
+                    });
                     saveData();
                     renderAll();
                     showToast("Dados do backup restaurados com sucesso!", "success");
@@ -1080,7 +1663,7 @@ function uploadBackup(event) {
         } catch (e) {
             showToast("Erro ao ler o arquivo JSON. Certifique-se de carregar um backup válido.", "error");
         }
-        input.value = ""; // Limpa input
+        input.value = "";
     };
     
     if (input.files.length > 0) {
@@ -1088,160 +1671,11 @@ function uploadBackup(event) {
     }
 }
 
-// --- CONTROLE DE DATA DA SEMANA ---
-
-function getDatesOfWeek(weekStr) {
-    if (!weekStr) return null;
-    const parts = weekStr.split("-W");
-    if (parts.length !== 2) return null;
-    
-    const year = parseInt(parts[0], 10);
-    const week = parseInt(parts[1], 10);
-    
-    const jan4 = new Date(year, 0, 4);
-    const day = jan4.getDay() || 7;
-    const monW1 = new Date(jan4.getTime());
-    monW1.setDate(jan4.getDate() - (day - 1));
-    
-    const monday = new Date(monW1.getTime());
-    monday.setDate(monW1.getDate() + (week - 1) * 7);
-    
-    const friday = new Date(monday.getTime());
-    friday.setDate(monday.getDate() + 4);
-    
-    return {
-        monday: monday,
-        friday: friday,
-        formatted: `do dia ${formatDateShort(monday)} ao dia ${formatDateShort(friday)}`
-    };
-}
-
-function formatDateShort(date) {
-    const d = String(date.getDate()).padStart(2, '0');
-    const m = String(date.getMonth() + 1).padStart(2, '0');
-    const y = date.getFullYear();
-    return `${d}/${m}/${y}`;
-}
-
-function getDaysOfWeekWithDates(weekStr) {
-    const dates = getDatesOfWeek(weekStr);
-    if (!dates) return null;
-    
-    const dias = ["Segunda", "Terça", "Quarta", "Quinta", "Sexta"];
-    const resultado = {};
-    
-    for (let i = 0; i < 5; i++) {
-        const d = new Date(dates.monday.getTime());
-        d.setDate(dates.monday.getDate() + i);
-        resultado[dias[i]] = `${dias[i]} - ${formatDateShort(d)}`;
+// Fechar modais ao pressionar tecla Escape
+document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") {
+        fecharModalEditarParticipante();
+        fecharModalFirebaseConfig();
+        fecharCalendarioSemana();
     }
-    return resultado;
-}
-
-function atualizarTextoSemana() {
-    const inputSemana = document.getElementById("semana-selecionada");
-    const textoIntervalo = document.getElementById("texto-intervalo-semana");
-    if (inputSemana && textoIntervalo) {
-        const datas = getDatesOfWeek(inputSemana.value);
-        if (datas) {
-            textoIntervalo.innerHTML = `<i class="fa-regular fa-calendar-days mr-1.5"></i> ${datas.formatted}`;
-            textoIntervalo.classList.remove("hidden");
-        } else {
-            textoIntervalo.classList.add("hidden");
-        }
-    }
-}
-
-function salvarDisponibilidades() {
-    const ativos = Object.keys(db.participantes).filter(nome => db.participantes[nome].ativo);
-    const dias = ["Segunda", "Terça", "Quarta", "Quinta", "Sexta"];
-    
-    ativos.forEach(nome => {
-        const disp = [];
-        dias.forEach(dia => {
-            const check = document.getElementById(`disp-${nome}-${dia}`);
-            if (check && check.checked) {
-                disp.push(dia);
-            }
-        });
-        db.participantes[nome].disponibilidade = disp;
-    });
-    
-    saveData();
-    showToast("Disponibilidades salvas com sucesso!", "success");
-}
-
-function limparDisponibilidades() {
-    const ativos = Object.keys(db.participantes).filter(nome => db.participantes[nome].ativo);
-    const dias = ["Segunda", "Terça", "Quarta", "Quinta", "Sexta"];
-    
-    ativos.forEach(nome => {
-        dias.forEach(dia => {
-            const check = document.getElementById(`disp-${nome}-${dia}`);
-            if (check) {
-                check.checked = false;
-            }
-        });
-    });
-
-    // Limpar também seleção de feriados
-    dias.forEach(dia => {
-        const checkFeriado = document.getElementById(`feriado-${dia}`);
-        if (checkFeriado) {
-            checkFeriado.checked = false;
-        }
-    });
-
-    showToast("Campos limpos! Suas marcações salvas anteriormente continuam intactas no banco.", "success");
-}
-
-function atualizarEscalaManual(dia, novoNome) {
-    if (!escalaPropostaGlobal || !semanaPropostaGlobal) return;
-    
-    const antigoNome = escalaPropostaGlobal[dia];
-    if (antigoNome === novoNome) return;
-
-    // Atualizar no objeto em memória
-    escalaPropostaGlobal[dia] = novoNome || null;
-    
-    // Atualizar estilo visual e ícone do card
-    const select = document.getElementById(`select-escala-${dia}`);
-    if (select) {
-        const card = select.parentElement;
-        const icon = document.getElementById(`icon-${dia}`);
-        
-        if (novoNome === "FERIADO") {
-            card.className = "p-4 rounded-lg border shadow-sm flex flex-col items-center justify-center text-center transition-all bg-amber-50 border-amber-300 text-amber-900";
-            if (icon) icon.className = "fa-solid fa-umbrella-beach text-amber-500 text-2xl";
-        } else if (novoNome) {
-            card.className = "p-4 rounded-lg border shadow-sm flex flex-col items-center justify-center text-center transition-all bg-blue-50 border-blue-200";
-            if (icon) icon.className = "fa-solid fa-user-shield text-blue-600 text-2xl";
-        } else {
-            card.className = "p-4 rounded-lg border shadow-sm flex flex-col items-center justify-center text-center transition-all bg-red-50 border-red-200 text-red-700";
-            if (icon) icon.className = "fa-solid fa-circle-xmark text-red-500 text-2xl";
-        }
-    }
-
-    // Sincronizar saldos de plantões com a alteração manual
-    if (antigoNome && antigoNome !== "FERIADO" && db.participantes[antigoNome]) {
-        db.participantes[antigoNome].plantoes = Math.max(0, db.participantes[antigoNome].plantoes - 1);
-    }
-    if (novoNome && novoNome !== "FERIADO" && db.participantes[novoNome]) {
-        db.participantes[novoNome].plantoes += 1;
-    }
-
-    // Sincronizar diretamente no histórico gravado
-    const histItem = db.historico_escalas.find(h => h.semana === semanaPropostaGlobal);
-    if (histItem) {
-        histItem.escala[dia] = novoNome || null;
-    } else {
-        salvarEscalaNoHistorico(semanaPropostaGlobal, escalaPropostaGlobal);
-    }
-
-    saveData();
-    renderHistorico();
-    renderParticipantes();
-    
-    const labelFeedback = (novoNome === "FERIADO") ? "FERIADO (Sem Plantão)" : (novoNome || "VAGO");
-    showToast(`Escala de ${dia} alterada para: ${labelFeedback} e atualizada no Histórico!`, "success");
-}
+});
