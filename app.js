@@ -33,6 +33,10 @@ let semanaPropostaGlobal = "";
 
 // Inicialização da aplicação
 document.addEventListener("DOMContentLoaded", () => {
+    // Garantir que nenhum modal comece aberto
+    fecharModalEditarParticipante();
+    fecharModalFirebaseConfig();
+
     loadData();
     inicializarDataSemana();
     renderAll();
