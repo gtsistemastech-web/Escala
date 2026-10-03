@@ -652,20 +652,17 @@ function exibirCardsEscala(semana, escala) {
     const dias = DIAS_PLANTAO;
     const diasComDatas = getDaysOfWeekWithDates(semana) || {};
 
-    const servidoresAtivos = Object.keys(db.participantes)
-        .filter(n => db.participantes[n].ativo && db.participantes[n].tipo === "servidor")
-        .sort();
-
-    const terceirizadosAtivos = Object.keys(db.participantes)
-        .filter(n => db.participantes[n].ativo && db.participantes[n].tipo === "terceirizado")
-        .sort();
+    // Coletar TODOS os participantes ativos (Servidores + Terceirizados juntos)
+    const todosAtivos = Object.keys(db.participantes)
+        .filter(n => db.participantes[n].ativo)
+        .sort((a, b) => a.localeCompare(b));
 
     dias.forEach(dia => {
         const diaData = escala[dia] || {};
-        const servAtual = typeof diaData === "object" ? diaData.servidor : diaData;
-        const tercAtual = typeof diaData === "object" ? diaData.terceirizado : null;
+        const p1Atual = typeof diaData === "object" ? (diaData.servidor || diaData.p1) : diaData;
+        const p2Atual = typeof diaData === "object" ? (diaData.terceirizado || diaData.p2) : null;
 
-        const ehFeriado = (servAtual === "FERIADO" && tercAtual === "FERIADO");
+        const ehFeriado = (p1Atual === "FERIADO" && p2Atual === "FERIADO");
         const card = document.createElement("div");
 
         if (ehFeriado) {
@@ -674,23 +671,19 @@ function exibirCardsEscala(semana, escala) {
             card.className = "p-4 rounded-xl border border-gray-200 shadow-sm flex flex-col justify-between transition-all bg-white hover:border-blue-300";
         }
 
-        // Opções Servidor
-        let optionsServidor = `<option value="">-- VAGO --</option>`;
-        optionsServidor += `<option value="FERIADO" ${servAtual === "FERIADO" ? "selected" : ""}>🏖️ FERIADO</option>`;
-        servidoresAtivos.forEach(nome => {
-            const selected = (nome === servAtual) ? "selected" : "";
-            const pl = db.participantes[nome] ? db.participantes[nome].plantoes : 0;
-            optionsServidor += `<option value="${nome}" ${selected}>${nome} (${pl} pl.)</option>`;
-        });
-
-        // Opções Terceirizado
-        let optionsTerceirizado = `<option value="">-- VAGO --</option>`;
-        optionsTerceirizado += `<option value="FERIADO" ${tercAtual === "FERIADO" ? "selected" : ""}>🏖️ FERIADO</option>`;
-        terceirizadosAtivos.forEach(nome => {
-            const selected = (nome === tercAtual) ? "selected" : "";
-            const pl = db.participantes[nome] ? db.participantes[nome].plantoes : 0;
-            optionsTerceirizado += `<option value="${nome}" ${selected}>${nome} (${pl} pl.)</option>`;
-        });
+        // Gerar as opções com TODOS os participantes cadastrados
+        const gerarOpcoesPlantonista = (nomeAtual) => {
+            let opts = `<option value="">-- VAGO --</option>`;
+            opts += `<option value="FERIADO" ${nomeAtual === "FERIADO" ? "selected" : ""}>🏖️ FERIADO</option>`;
+            todosAtivos.forEach(nome => {
+                const selected = (nome === nomeAtual) ? "selected" : "";
+                const p = db.participantes[nome];
+                const pl = p ? p.plantoes : 0;
+                const badgeTipo = p && p.tipo === "servidor" ? "🏛️ Servidor" : "🛠️ Terceirizado";
+                opts += `<option value="${nome}" ${selected}>${nome} (${badgeTipo} - ${pl} pl.)</option>`;
+            });
+            return opts;
+        };
 
         card.innerHTML = `
             <div>
@@ -702,25 +695,25 @@ function exibirCardsEscala(semana, escala) {
                 </div>
 
                 <div class="space-y-3 text-left">
-                    <!-- Slot 1: Servidor -->
+                    <!-- Slot 1: Plantonista 1 -->
                     <div class="bg-blue-50/70 p-2.5 rounded-lg border border-blue-200">
                         <label class="block text-xs font-bold text-blue-900 mb-1 flex items-center justify-between">
-                            <span><i class="fa-solid fa-building-columns mr-1 text-blue-600"></i> Servidor:</span>
-                            <span class="text-[10px] font-semibold text-blue-600">${servAtual && servAtual !== 'FERIADO' ? 'Plantão' : ''}</span>
+                            <span><i class="fa-solid fa-user-check mr-1 text-blue-600"></i> Plantonista 1:</span>
+                            <span class="text-[10px] font-semibold text-blue-600">${p1Atual && p1Atual !== 'FERIADO' ? 'Plantão' : ''}</span>
                         </label>
                         <select onchange="atualizarEscalaManual('${dia}', 'servidor', this.value)" class="w-full text-xs font-semibold text-gray-900 border border-gray-300 rounded-md p-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white shadow-sm">
-                            ${optionsServidor}
+                            ${gerarOpcoesPlantonista(p1Atual)}
                         </select>
                     </div>
 
-                    <!-- Slot 2: Terceirizado -->
-                    <div class="bg-purple-50/70 p-2.5 rounded-lg border border-purple-200">
-                        <label class="block text-xs font-bold text-purple-900 mb-1 flex items-center justify-between">
-                            <span><i class="fa-solid fa-id-badge mr-1 text-purple-600"></i> Terceirizado:</span>
-                            <span class="text-[10px] font-semibold text-purple-600">${tercAtual && tercAtual !== 'FERIADO' ? 'Plantão' : ''}</span>
+                    <!-- Slot 2: Plantonista 2 -->
+                    <div class="bg-indigo-50/70 p-2.5 rounded-lg border border-indigo-200">
+                        <label class="block text-xs font-bold text-indigo-900 mb-1 flex items-center justify-between">
+                            <span><i class="fa-solid fa-user-check mr-1 text-indigo-600"></i> Plantonista 2:</span>
+                            <span class="text-[10px] font-semibold text-indigo-600">${p2Atual && p2Atual !== 'FERIADO' ? 'Plantão' : ''}</span>
                         </label>
-                        <select onchange="atualizarEscalaManual('${dia}', 'terceirizado', this.value)" class="w-full text-xs font-semibold text-gray-900 border border-gray-300 rounded-md p-1.5 focus:outline-none focus:ring-2 focus:ring-purple-500 bg-white shadow-sm">
-                            ${optionsTerceirizado}
+                        <select onchange="atualizarEscalaManual('${dia}', 'terceirizado', this.value)" class="w-full text-xs font-semibold text-gray-900 border border-gray-300 rounded-md p-1.5 focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white shadow-sm">
+                            ${gerarOpcoesPlantonista(p2Atual)}
                         </select>
                     </div>
                 </div>
