@@ -317,12 +317,16 @@ function abrirModalFirebaseConfig() {
         const configSalva = localStorage.getItem("firebase_custom_config");
         textarea.value = configSalva || JSON.stringify(FIREBASE_CONFIG_PADRAO, null, 2);
         modal.classList.remove("hidden");
+        modal.style.display = "flex";
     }
 }
 
 function fecharModalFirebaseConfig() {
     const modal = document.getElementById("modal-firebase-config");
-    if (modal) modal.classList.add("hidden");
+    if (modal) {
+        modal.classList.add("hidden");
+        modal.style.display = "none";
+    }
 }
 
 function salvarFirebaseConfigPersonalizada() {
@@ -986,6 +990,7 @@ function abrirModalEditarParticipante(nome) {
     inputAntigo.value = nome;
     inputNome.value = nome;
     modal.classList.remove("hidden");
+    modal.style.display = "flex";
     setTimeout(() => {
         inputNome.focus();
         inputNome.select();
@@ -994,7 +999,10 @@ function abrirModalEditarParticipante(nome) {
 
 function fecharModalEditarParticipante() {
     const modal = document.getElementById("modal-editar-participante");
-    if (modal) modal.classList.add("hidden");
+    if (modal) {
+        modal.classList.add("hidden");
+        modal.style.display = "none";
+    }
 }
 
 function salvarEdicaoNomeParticipante(event) {
