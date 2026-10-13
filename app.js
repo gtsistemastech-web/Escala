@@ -283,12 +283,15 @@ function sairDaConta() {
 function mostrarTelaLogin() {
     const tela = document.getElementById("tela-login");
     const app = document.getElementById("app-conteudo");
-    // display explícito: a tela de login usa "flex", e só a classe "hidden"
-    // não basta para escondê-la (as duas regras de display competem).
-    if (tela) {
-        tela.classList.remove("hidden");
-        tela.style.display = "flex";
+
+    // Se a tela já foi removida (sessão encerrada depois de entrar), recarrega
+    // a página para reconstruí-la em vez de deixar o usuário sem nada.
+    if (!tela) {
+        location.reload();
+        return;
     }
+    tela.classList.remove("hidden");
+    tela.style.setProperty("display", "flex", "important");
     if (app) {
         app.classList.add("hidden");
         app.style.display = "none";
@@ -303,13 +306,15 @@ function mostrarTelaLogin() {
 function mostrarAplicacao(user) {
     const tela = document.getElementById("tela-login");
     const app = document.getElementById("app-conteudo");
-    if (tela) {
-        tela.classList.add("hidden");
-        tela.style.display = "none";
+    // A tela de login é REMOVIDA da página, não apenas escondida: extensões do
+    // navegador injetam CSS que pode reverter um "display:none" e deixar a
+    // sobreposição na frente do sistema. Removida, não há o que reverter.
+    if (tela && tela.parentNode) {
+        tela.parentNode.removeChild(tela);
     }
     if (app) {
         app.classList.remove("hidden");
-        app.style.display = "block";
+        app.style.setProperty("display", "block", "important");
     }
 
     const rotulo = document.getElementById("usuario-logado");
