@@ -381,29 +381,10 @@ function loadData() {
             db = { participantes: {}, historico_escalas: [] };
         }
     } else {
-        // Dados iniciais
-        db = {
-            participantes: {
-                "Patricia": { plantoes: 1, ativo: true, tipo: "servidor", disponibilidade: [...DIAS_PLANTAO] },
-                "Valeria": { plantoes: 1, ativo: true, tipo: "servidor", disponibilidade: [...DIAS_PLANTAO] },
-                "Debora": { plantoes: 1, ativo: true, tipo: "servidor", disponibilidade: [...DIAS_PLANTAO] },
-                "Gustavo": { plantoes: 1, ativo: true, tipo: "terceirizado", disponibilidade: [...DIAS_PLANTAO] },
-                "Laryssa": { plantoes: 1, ativo: true, tipo: "terceirizado", disponibilidade: [...DIAS_PLANTAO] }
-            },
-            historico_escalas: [
-                {
-                    semana: "2026-W36",
-                    semanaTexto: "Semana 36 de 2026 (do dia 31/08/2026 ao dia 03/09/2026)",
-                    escala: {
-                        "Segunda": { servidor: "Patricia", terceirizado: "Gustavo" },
-                        "Terça": { servidor: "Valeria", terceirizado: "Laryssa" },
-                        "Quarta": { servidor: "Debora", terceirizado: "Gustavo" },
-                        "Quinta": { servidor: "Patricia", terceirizado: "Laryssa" }
-                    }
-                }
-            ]
-        };
-        saveData();
+        // Computador sem dados locais: começa VAZIO e espera os dados da nuvem.
+        // Nunca criar base de exemplo aqui — ela seria publicada por cima da
+        // base real dos outros computadores.
+        db = { participantes: {}, historico_escalas: [] };
     }
 }
 
@@ -418,6 +399,9 @@ function saveData() {
 // Retrato do que já está na nuvem, para gravar apenas o que mudou.
 // Chave: id do documento. Valor: JSON do conteúdo.
 let espelhoNuvem = {};
+
+// Verdadeiro enquanto a coleção na nuvem não tiver nenhum documento.
+let nuvemVazia = false;
 
 // Semanas que o usuário mandou apagar nesta sessão. Só elas são removidas da
 // nuvem. Uma semana ausente do banco local NUNCA é apagada: o computador pode
@@ -443,10 +427,17 @@ function initFirebase() {
 
         // Escuta a coleção inteira: participantes + um documento por semana.
         firestoreDb.collection(FIRESTORE_COLLECTION)
-            .onSnapshot((snapshot) => {
+            .onSnapshot({ includeMetadataChanges: false }, (snapshot) => {
+                // Uma resposta VAZIA vinda do cache local não prova que a nuvem
+                // está vazia: pode ser só o cache ainda frio. Tratá-la como
+                // verdade levaria a publicar a base local por cima da real.
+                if (snapshot.empty && snapshot.metadata && snapshot.metadata.fromCache) {
+                    console.info("Resposta vazia vinda do cache; aguardando o servidor.");
+                    return;
+                }
                 const docs = {};
                 snapshot.forEach(d => { docs[d.id] = d.data(); });
-                aplicarDadosNuvem(docs);
+                aplicarDadosNuvem(docs, { doServidor: !(snapshot.metadata && snapshot.metadata.fromCache) });
             }, (erro) => {
                 console.warn("Erro no listener em tempo real do Firestore:", erro);
                 atualizarStatusNuvem(false, "Sem conexão com a nuvem (Modo Local)");
@@ -463,7 +454,7 @@ function initFirebase() {
  * Formato atual: documento "participantes" + um documento por semana.
  * Formato antigo: documento único "dados_globais" — lido e migrado automaticamente.
  */
-function aplicarDadosNuvem(docs) {
+function aplicarDadosNuvem(docs, opcoesLeitura = {}) {
     if (!docs || typeof docs !== "object") return;
 
     espelhoNuvem = {};
@@ -490,11 +481,21 @@ function aplicarDadosNuvem(docs) {
         participantes = legado.participantes || {};
         historico = Array.isArray(legado.historico_escalas) ? legado.historico_escalas : [];
     } else {
-        // Nuvem vazia: publica o que existe localmente.
-        salvarNaNuvem(db);
-        atualizarStatusNuvem(true, "Base de dados na nuvem inicializada com sucesso!");
+        // Nuvem sem nenhum documento. O sistema NÃO publica a base local aqui:
+        // se este computador estiver com dados antigos ou incompletos, isso
+        // sobrescreveria a base real de todo mundo. A primeira carga é sempre
+        // um ato deliberado do usuário (restaurar backup ou cadastrar).
+        nuvemVazia = true;
+        atualizarStatusNuvem(true, "Nuvem conectada, mas sem dados cadastrados.");
+        if (Object.keys(db.participantes || {}).length > 0) {
+            avisarFalhaGravacao(
+                "A nuvem está vazia e este computador tem dados locais. Por segurança, nada foi enviado automaticamente. " +
+                "Se estes dados locais estiverem corretos, use 'Sincronizar Agora' na aba Histórico e Backups para publicá-los."
+            );
+        }
         return;
     }
+    nuvemVazia = false;
 
     Object.keys(participantes).forEach(nome => {
         const p = participantes[nome];
@@ -547,6 +548,27 @@ function idDocumentoSemana(semana) {
  */
 function salvarNaNuvem(dados, opcoes = {}) {
     if (!firestoreDb) return;
+
+    // Trava de segurança: nunca substituir uma lista de participantes que
+    // existe na nuvem por uma lista VAZIA. Isso só acontece quando o
+    // navegador ainda não recebeu os dados, e já causou perda uma vez.
+    const qtdLocal = Object.keys(dados.participantes || {}).length;
+    const espelhoParticipantes = espelhoNuvem[DOC_PARTICIPANTES];
+    if (qtdLocal === 0 && espelhoParticipantes) {
+        try {
+            const naNuvem = JSON.parse(espelhoParticipantes).participantes || {};
+            if (Object.keys(naNuvem).length > 0) {
+                console.warn("Gravação bloqueada: a lista local está vazia e a nuvem tem participantes.");
+                return;
+            }
+        } catch (e) { /* espelho ilegível: segue o fluxo normal */ }
+    }
+
+    // Enquanto a nuvem não tiver sido lida de fato, só grava a pedido explícito.
+    if (nuvemVazia && !opcoes.forcado && !opcoes.migrando) {
+        console.warn("Gravação automática suspensa: nuvem vazia, aguardando ação do usuário.");
+        return;
+    }
 
     const colecao = firestoreDb.collection(FIRESTORE_COLLECTION);
     const lote = firestoreDb.batch();
@@ -688,7 +710,8 @@ function forcarSincronizacaoNuvem() {
         return;
     }
     showToast("Sincronizando com a nuvem...", "info");
-    salvarNaNuvem(db);
+    // Pedido explícito do usuário: pode publicar mesmo com a nuvem vazia.
+    salvarNaNuvem(db, { forcado: true });
 }
 
 function abrirModalFirebaseConfig() {
