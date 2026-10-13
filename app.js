@@ -25,7 +25,18 @@ const FIREBASE_CONFIG_PADRAO = {
     appId: "1:841573722795:web:3635d93cd513c6b1a6a5ee"
 };
 const FIRESTORE_COLLECTION = "escala_plantao_noturno";
-const FIRESTORE_DOC = "dados_globais";
+const FIRESTORE_DOC = "dados_globais";          // documento legado (migrado automaticamente)
+const DOC_PARTICIPANTES = "participantes";      // participantes e saldos
+const PREFIXO_DOC_SEMANA = "semana_";           // uma escala por documento: semana_2026-W41
+
+// Contas autorizadas. Para incluir alguém, acrescente o e-mail aqui E na
+// regra do Firestore — os dois precisam concordar.
+const EMAILS_AUTORIZADOS = [
+    "gctormin2015@gmail.com",
+    "laryssaleal@gmail.com"
+];
+
+let usuarioAtual = null;
 
 // Escala proposta temporária (ainda não gravada)
 let escalaPropostaGlobal = null;
@@ -37,16 +48,27 @@ document.addEventListener("DOMContentLoaded", () => {
     fecharModalEditarParticipante();
     fecharModalFirebaseConfig();
 
+    // A autenticação vem antes de tudo: só depois de confirmar o usuário
+    // é que os dados são carregados e a conexão com o Firestore é aberta.
+    initAutenticacao();
+
+    registrarEventosDaInterface();
+});
+
+// Chamado somente após o login ser confirmado.
+function iniciarAplicacao() {
     loadData();
     inicializarDataSemana();
     renderAll();
-    
+
     // Recuperar e exibir a última escala salva nos cards da tela
     recuperarUltimaEscalaNaTela();
-    
+
     // Conectar à Nuvem (Firebase Firestore)
     initFirebase();
-    
+}
+
+function registrarEventosDaInterface() {
     // Form de cadastro de participantes
     const formCadastro = document.getElementById("form-cadastro");
     if (formCadastro) {
@@ -92,7 +114,223 @@ document.addEventListener("DOMContentLoaded", () => {
             exportarEscalaExcel();
         });
     }
-});
+}
+
+// --- AUTENTICAÇÃO (FIREBASE AUTH + GOOGLE) ---
+
+function configuracaoFirebase() {
+    let config = FIREBASE_CONFIG_PADRAO;
+    const configSalva = localStorage.getItem("firebase_custom_config");
+    if (configSalva) {
+        try {
+            config = JSON.parse(configSalva);
+        } catch (err) {
+            console.error("Erro ao ler firebase_custom_config, usando padrão:", err);
+        }
+    }
+    return config;
+}
+
+function emailAutorizado(email) {
+    if (!email) return false;
+    return EMAILS_AUTORIZADOS.includes(email.trim().toLowerCase());
+}
+
+function initAutenticacao() {
+    if (typeof firebase === "undefined" || !firebase.auth) {
+        mostrarErroLogin("Não foi possível carregar o serviço de login. Verifique sua conexão e recarregue a página.");
+        return;
+    }
+
+    try {
+        if (!firebase.apps || firebase.apps.length === 0) {
+            firebase.initializeApp(configuracaoFirebase());
+        }
+    } catch (e) {
+        console.error("Falha ao inicializar Firebase:", e);
+        mostrarErroLogin("Falha ao iniciar a conexão com o servidor.");
+        return;
+    }
+
+    // Mantém a sessão no navegador: quem já entrou não precisa entrar de novo.
+    firebase.auth().onAuthStateChanged((user) => {
+        if (!user) {
+            mostrarTelaLogin();
+            return;
+        }
+
+        if (!emailAutorizado(user.email)) {
+            // Conta existe no Firebase, mas não é autorizada nesta aplicação.
+            const email = user.email || "essa conta";
+            firebase.auth().signOut().finally(() => {
+                mostrarTelaLogin();
+                mostrarErroLogin(`A conta ${email} não tem acesso a este sistema. Entre com uma conta autorizada.`);
+            });
+            return;
+        }
+
+        usuarioAtual = user;
+        mostrarAplicacao(user);
+        iniciarAplicacao();
+    });
+}
+
+function entrarComEmailSenha(event) {
+    if (event) event.preventDefault();
+
+    const inputEmail = document.getElementById("login-email");
+    const inputSenha = document.getElementById("login-senha");
+    const btn = document.getElementById("btn-entrar");
+    const textoBtn = document.getElementById("texto-btn-entrar");
+
+    const email = inputEmail ? inputEmail.value.trim() : "";
+    const senha = inputSenha ? inputSenha.value : "";
+    if (!email || !senha) return;
+
+    esconderErroLogin();
+    esconderAvisoLogin();
+    if (btn) btn.disabled = true;
+    if (textoBtn) textoBtn.textContent = "Entrando...";
+
+    const restaurarBotao = () => {
+        if (btn) btn.disabled = false;
+        if (textoBtn) textoBtn.textContent = "Entrar";
+    };
+
+    // Verificação local antecipada: evita bater no servidor com conta não prevista.
+    if (!emailAutorizado(email)) {
+        restaurarBotao();
+        mostrarErroLogin("Esta conta não tem acesso ao sistema de escalas.");
+        return;
+    }
+
+    firebase.auth().signInWithEmailAndPassword(email, senha)
+        .then(() => {
+            if (inputSenha) inputSenha.value = "";
+        })
+        .catch((erro) => {
+            console.warn("Erro ao entrar:", erro);
+            restaurarBotao();
+            switch (erro.code) {
+                case "auth/invalid-email":
+                    mostrarErroLogin("E-mail inválido. Confira o endereço digitado.");
+                    break;
+                case "auth/user-disabled":
+                    mostrarErroLogin("Esta conta está desativada. Procure o administrador do sistema.");
+                    break;
+                case "auth/too-many-requests":
+                    mostrarErroLogin("Muitas tentativas seguidas. Aguarde alguns minutos ou use 'Esqueci minha senha'.");
+                    break;
+                case "auth/network-request-failed":
+                    mostrarErroLogin("Sem conexão com a internet. Verifique a rede e tente de novo.");
+                    break;
+                default:
+                    // invalid-credential / wrong-password / user-not-found chegam
+                    // com códigos variados conforme a versão do Firebase.
+                    mostrarErroLogin("E-mail ou senha incorretos.");
+            }
+        });
+}
+
+function alternarVisibilidadeSenha() {
+    const input = document.getElementById("login-senha");
+    const icone = document.getElementById("icone-olho-senha");
+    if (!input) return;
+    const mostrando = input.type === "text";
+    input.type = mostrando ? "password" : "text";
+    if (icone) icone.className = mostrando ? "fa-solid fa-eye" : "fa-solid fa-eye-slash";
+}
+
+function recuperarSenha() {
+    const inputEmail = document.getElementById("login-email");
+    const email = inputEmail ? inputEmail.value.trim() : "";
+
+    esconderErroLogin();
+    esconderAvisoLogin();
+
+    if (!email) {
+        mostrarErroLogin("Digite seu e-mail no campo acima e clique novamente em 'Esqueci minha senha'.");
+        if (inputEmail) inputEmail.focus();
+        return;
+    }
+    if (!emailAutorizado(email)) {
+        mostrarErroLogin("Esta conta não tem acesso ao sistema de escalas.");
+        return;
+    }
+
+    firebase.auth().sendPasswordResetEmail(email)
+        .then(() => {
+            mostrarAvisoLogin(`Enviamos um link de redefinição para ${email}. Verifique a caixa de entrada e o spam.`);
+        })
+        .catch((erro) => {
+            console.warn("Erro ao enviar redefinição de senha:", erro);
+            if (erro.code === "auth/too-many-requests") {
+                mostrarErroLogin("Muitas tentativas seguidas. Aguarde alguns minutos.");
+            } else {
+                mostrarErroLogin("Não foi possível enviar o e-mail de redefinição. Tente novamente.");
+            }
+        });
+}
+
+function sairDaConta() {
+    if (!confirm("Deseja sair da sua conta?")) return;
+    firebase.auth().signOut().then(() => {
+        // Recarrega para limpar a tela e os dados em memória.
+        location.reload();
+    });
+}
+
+function mostrarTelaLogin() {
+    const tela = document.getElementById("tela-login");
+    const app = document.getElementById("app-conteudo");
+    if (tela) tela.classList.remove("hidden");
+    if (app) app.classList.add("hidden");
+
+    const inputEmail = document.getElementById("login-email");
+    if (inputEmail && !inputEmail.value) {
+        setTimeout(() => inputEmail.focus(), 80);
+    }
+}
+
+function mostrarAplicacao(user) {
+    const tela = document.getElementById("tela-login");
+    const app = document.getElementById("app-conteudo");
+    if (tela) tela.classList.add("hidden");
+    if (app) app.classList.remove("hidden");
+
+    const rotulo = document.getElementById("usuario-logado");
+    if (rotulo) {
+        const nome = user.displayName ? user.displayName.split(" ")[0] : user.email;
+        rotulo.textContent = nome;
+        rotulo.title = user.email;
+    }
+}
+
+function mostrarErroLogin(mensagem) {
+    const el = document.getElementById("erro-login");
+    if (el) {
+        el.textContent = mensagem;
+        el.classList.remove("hidden");
+    }
+}
+
+function esconderErroLogin() {
+    const el = document.getElementById("erro-login");
+    if (el) el.classList.add("hidden");
+}
+
+function mostrarAvisoLogin(mensagem) {
+    const el = document.getElementById("aviso-login");
+    if (el) {
+        el.textContent = mensagem;
+        el.classList.remove("hidden");
+    }
+}
+
+function esconderAvisoLogin() {
+    const el = document.getElementById("aviso-login");
+    if (el) el.classList.add("hidden");
+}
 
 // --- PERSISTÊNCIA (LOCALSTORAGE) ---
 
@@ -158,6 +396,15 @@ function saveData() {
     }
 }
 
+// Retrato do que já está na nuvem, para gravar apenas o que mudou.
+// Chave: id do documento. Valor: JSON do conteúdo.
+let espelhoNuvem = {};
+
+// Semanas que o usuário mandou apagar nesta sessão. Só elas são removidas da
+// nuvem. Uma semana ausente do banco local NUNCA é apagada: o computador pode
+// simplesmente estar desatualizado, e apagar nesse caso destruiria o histórico.
+let semanasParaRemover = new Set();
+
 // --- SINCRONIZAÇÃO EM NUVEM (FIREBASE FIRESTORE) ---
 
 function initFirebase() {
@@ -168,35 +415,23 @@ function initFirebase() {
     }
 
     try {
-        let config = FIREBASE_CONFIG_PADRAO;
-        const configSalva = localStorage.getItem("firebase_custom_config");
-        if (configSalva) {
-            try {
-                config = JSON.parse(configSalva);
-            } catch (err) {
-                console.error("Erro ao ler firebase_custom_config, usando padrão:", err);
-            }
-        }
-
         if (!firebase.apps || firebase.apps.length === 0) {
-            firebase.initializeApp(config);
+            firebase.initializeApp(configuracaoFirebase());
         }
         firestoreDb = firebase.firestore();
 
         atualizarStatusNuvem(true, "Conectando ao banco de dados em tempo real...");
 
-        firestoreDb.collection(FIRESTORE_COLLECTION).doc(FIRESTORE_DOC)
-            .onSnapshot((doc) => {
-                if (doc.exists) {
-                    const dadosNuvem = doc.data();
-                    aplicarDadosNuvem(dadosNuvem);
-                } else {
-                    salvarNaNuvem(db);
-                    atualizarStatusNuvem(true, "Base de dados na nuvem inicializada com sucesso!");
-                }
+        // Escuta a coleção inteira: participantes + um documento por semana.
+        firestoreDb.collection(FIRESTORE_COLLECTION)
+            .onSnapshot((snapshot) => {
+                const docs = {};
+                snapshot.forEach(d => { docs[d.id] = d.data(); });
+                aplicarDadosNuvem(docs);
             }, (erro) => {
                 console.warn("Erro no listener em tempo real do Firestore:", erro);
                 atualizarStatusNuvem(false, "Sem conexão com a nuvem (Modo Local)");
+                avisarFalhaGravacao("Não foi possível ler os dados na nuvem. O que você alterar agora fica apenas neste computador.");
             });
     } catch (e) {
         console.error("Falha ao inicializar Firebase:", e);
@@ -204,56 +439,183 @@ function initFirebase() {
     }
 }
 
-function aplicarDadosNuvem(dadosNuvem) {
-    if (!dadosNuvem || typeof dadosNuvem !== "object") return;
+/**
+ * Monta o banco local a partir dos documentos da coleção.
+ * Formato atual: documento "participantes" + um documento por semana.
+ * Formato antigo: documento único "dados_globais" — lido e migrado automaticamente.
+ */
+function aplicarDadosNuvem(docs) {
+    if (!docs || typeof docs !== "object") return;
 
-    const dadosFormatados = {
-        participantes: dadosNuvem.participantes || {},
-        historico_escalas: dadosNuvem.historico_escalas || []
-    };
+    espelhoNuvem = {};
+    Object.keys(docs).forEach(id => { espelhoNuvem[id] = JSON.stringify(semDataDeGravacao(docs[id])); });
 
-    Object.keys(dadosFormatados.participantes).forEach(nome => {
-        const p = dadosFormatados.participantes[nome];
+    const temFormatoNovo = !!docs[DOC_PARTICIPANTES] ||
+        Object.keys(docs).some(id => id.startsWith(PREFIXO_DOC_SEMANA));
+
+    let participantes = {};
+    let historico = [];
+
+    if (temFormatoNovo) {
+        participantes = (docs[DOC_PARTICIPANTES] && docs[DOC_PARTICIPANTES].participantes) || {};
+        Object.keys(docs).forEach(id => {
+            if (!id.startsWith(PREFIXO_DOC_SEMANA)) return;
+            const d = docs[id];
+            if (d && d.semana && d.escala) {
+                historico.push({ semana: d.semana, semanaTexto: d.semanaTexto || d.semana, escala: d.escala });
+            }
+        });
+    } else if (docs[FIRESTORE_DOC]) {
+        // Base ainda no formato antigo.
+        const legado = docs[FIRESTORE_DOC];
+        participantes = legado.participantes || {};
+        historico = Array.isArray(legado.historico_escalas) ? legado.historico_escalas : [];
+    } else {
+        // Nuvem vazia: publica o que existe localmente.
+        salvarNaNuvem(db);
+        atualizarStatusNuvem(true, "Base de dados na nuvem inicializada com sucesso!");
+        return;
+    }
+
+    Object.keys(participantes).forEach(nome => {
+        const p = participantes[nome];
         if (!p.tipo) p.tipo = "servidor";
         if (!p.disponibilidade) p.disponibilidade = [...DIAS_PLANTAO];
     });
 
-    const jsonAtual = JSON.stringify(db);
-    const jsonNovo = JSON.stringify(dadosFormatados);
+    historico.sort((a, b) => b.semana.localeCompare(a.semana));
 
-    if (jsonAtual !== jsonNovo) {
+    const dadosFormatados = { participantes: participantes, historico_escalas: historico };
+    const jsonNovo = JSON.stringify(dadosFormatados);
+    const mudou = JSON.stringify(db) !== jsonNovo;
+
+    if (mudou) {
         sincronizandoComNuvem = true;
         db = dadosFormatados;
         localStorage.setItem("plantao_noturno_db", jsonNovo);
         renderAll();
         recuperarUltimaEscalaNaTela();
         sincronizandoComNuvem = false;
+    }
 
-        const horaStr = new Date().toLocaleTimeString('pt-BR');
-        atualizarStatusNuvem(true, `Sincronizado em tempo real às ${horaStr}`);
-    } else {
-        const horaStr = new Date().toLocaleTimeString('pt-BR');
-        atualizarStatusNuvem(true, `Sincronizado às ${horaStr}`);
+    const horaStr = new Date().toLocaleTimeString('pt-BR');
+    atualizarStatusNuvem(true, `Sincronizado às ${horaStr}`);
+
+    // Base antiga detectada: converte para um documento por semana.
+    if (!temFormatoNovo && docs[FIRESTORE_DOC]) {
+        console.info("Migrando base do formato antigo para documentos por semana...");
+        salvarNaNuvem(db, { migrando: true });
     }
 }
 
-function salvarNaNuvem(dados) {
+function semDataDeGravacao(obj) {
+    // A data de gravação é preenchida pelo servidor e mudaria a comparação
+    // a cada escrita, então fica de fora do espelho.
+    if (!obj || typeof obj !== "object") return obj;
+    const copia = { ...obj };
+    delete copia.atualizadoEm;
+    return copia;
+}
+
+function idDocumentoSemana(semana) {
+    return PREFIXO_DOC_SEMANA + semana;
+}
+
+/**
+ * Grava na nuvem apenas o que mudou: o documento de participantes e as
+ * semanas efetivamente alteradas. Assim um navegador desatualizado nunca
+ * sobrescreve a base inteira — no pior caso, afeta uma semana.
+ */
+function salvarNaNuvem(dados, opcoes = {}) {
     if (!firestoreDb) return;
 
-    firestoreDb.collection(FIRESTORE_COLLECTION).doc(FIRESTORE_DOC)
-        .set({
-            participantes: dados.participantes || {},
-            historico_escalas: dados.historico_escalas || [],
+    const colecao = firestoreDb.collection(FIRESTORE_COLLECTION);
+    const lote = firestoreDb.batch();
+    let gravacoes = 0;
+
+    // 1. Participantes e saldos
+    const docParticipantes = { participantes: dados.participantes || {} };
+    if (espelhoNuvem[DOC_PARTICIPANTES] !== JSON.stringify(docParticipantes)) {
+        lote.set(colecao.doc(DOC_PARTICIPANTES), {
+            ...docParticipantes,
             atualizadoEm: firebase.firestore.FieldValue.serverTimestamp()
-        })
+        });
+        gravacoes++;
+    }
+
+    // 2. Uma escala por documento
+    const novoEspelho = {};
+    (dados.historico_escalas || []).forEach(h => {
+        if (!h || !h.semana) return;
+        const id = idDocumentoSemana(h.semana);
+        const conteudo = { semana: h.semana, semanaTexto: h.semanaTexto || h.semana, escala: h.escala || {} };
+        novoEspelho[id] = JSON.stringify(conteudo);
+        if (espelhoNuvem[id] !== novoEspelho[id]) {
+            lote.set(colecao.doc(id), {
+                ...conteudo,
+                atualizadoEm: firebase.firestore.FieldValue.serverTimestamp()
+            });
+            gravacoes++;
+        }
+    });
+
+    // 3. Apenas as semanas que o usuário mandou apagar saem da nuvem
+    const removidasNesteLote = [];
+    semanasParaRemover.forEach(semana => {
+        const id = idDocumentoSemana(semana);
+        lote.delete(colecao.doc(id));
+        removidasNesteLote.push(id);
+        gravacoes++;
+    });
+
+    // 4. Concluída a migração, o documento antigo deixa de ser necessário
+    if (opcoes.migrando && espelhoNuvem[FIRESTORE_DOC] !== undefined) {
+        lote.delete(colecao.doc(FIRESTORE_DOC));
+        gravacoes++;
+    }
+
+    if (gravacoes === 0) return;
+
+    lote.commit()
         .then(() => {
+            // Atualiza o espelho local para não reenviar o que acabou de subir.
+            if (espelhoNuvem[DOC_PARTICIPANTES] !== JSON.stringify(docParticipantes)) {
+                espelhoNuvem[DOC_PARTICIPANTES] = JSON.stringify(docParticipantes);
+            }
+            Object.keys(novoEspelho).forEach(id => { espelhoNuvem[id] = novoEspelho[id]; });
+            removidasNesteLote.forEach(id => { delete espelhoNuvem[id]; });
+            semanasParaRemover.clear();
+
             const horaStr = new Date().toLocaleTimeString('pt-BR');
             atualizarStatusNuvem(true, `Salvo na nuvem às ${horaStr}`);
+            esconderFalhaGravacao();
+            if (opcoes.migrando) {
+                showToast("Base de dados convertida para o novo formato com sucesso.", "success");
+            }
         })
         .catch((err) => {
-            console.warn("Aviso ao salvar na nuvem:", err);
+            console.warn("Erro ao salvar na nuvem:", err);
             atualizarStatusNuvem(false, "Falha ao gravar na nuvem (Salvo localmente)");
+            if (err && err.code === "permission-denied") {
+                avisarFalhaGravacao("O servidor recusou a gravação (sem permissão). Suas alterações ficaram apenas neste computador e não serão vistas pela outra pessoa.");
+            } else {
+                avisarFalhaGravacao("Não foi possível salvar na nuvem. Verifique sua conexão. Suas alterações ficaram apenas neste computador.");
+            }
         });
+}
+
+// --- AVISO DE FALHA DE GRAVAÇÃO ---
+
+function avisarFalhaGravacao(mensagem) {
+    const banner = document.getElementById("banner-falha-gravacao");
+    const texto = document.getElementById("texto-falha-gravacao");
+    if (texto) texto.textContent = mensagem;
+    if (banner) banner.classList.remove("hidden");
+}
+
+function esconderFalhaGravacao() {
+    const banner = document.getElementById("banner-falha-gravacao");
+    if (banner) banner.classList.add("hidden");
 }
 
 function atualizarStatusNuvem(conectado, texto) {
@@ -404,6 +766,8 @@ function resetAllPlantoes() {
     for (const nome of Object.keys(db.participantes)) {
         db.participantes[nome].plantoes = 0;
     }
+    // Exclusão pedida explicitamente: marca cada semana para sair da nuvem.
+    db.historico_escalas.forEach(h => { if (h && h.semana) semanasParaRemover.add(h.semana); });
     db.historico_escalas = [];
     saveData();
     renderAll();
@@ -1277,6 +1641,7 @@ function confirmDeletarHistorico(index) {
             }
         });
 
+        if (item && item.semana) semanasParaRemover.add(item.semana);
         db.historico_escalas.splice(index, 1);
         saveData();
         renderAll();
