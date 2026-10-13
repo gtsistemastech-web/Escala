@@ -647,16 +647,25 @@ function salvarNaNuvem(dados, opcoes = {}) {
 
 // --- AVISO DE FALHA DE GRAVAÇÃO ---
 
+// O display vai inline e com !important porque a faixa combina as classes
+// "hidden" e "flex": sozinha, a classe não a esconde.
 function avisarFalhaGravacao(mensagem) {
     const banner = document.getElementById("banner-falha-gravacao");
     const texto = document.getElementById("texto-falha-gravacao");
+    if (!mensagem) return;              // sem motivo, sem aviso
     if (texto) texto.textContent = mensagem;
-    if (banner) banner.classList.remove("hidden");
+    if (banner) {
+        banner.classList.remove("hidden");
+        banner.style.setProperty("display", "flex", "important");
+    }
 }
 
 function esconderFalhaGravacao() {
     const banner = document.getElementById("banner-falha-gravacao");
-    if (banner) banner.classList.add("hidden");
+    if (banner) {
+        banner.classList.add("hidden");
+        banner.style.setProperty("display", "none", "important");
+    }
 }
 
 function atualizarStatusNuvem(conectado, texto) {
@@ -721,7 +730,7 @@ function abrirModalFirebaseConfig() {
         const configSalva = localStorage.getItem("firebase_custom_config");
         textarea.value = configSalva || JSON.stringify(FIREBASE_CONFIG_PADRAO, null, 2);
         modal.classList.remove("hidden");
-        modal.style.display = "flex";
+        modal.style.setProperty("display", "flex", "important");
     }
 }
 
@@ -729,7 +738,7 @@ function fecharModalFirebaseConfig() {
     const modal = document.getElementById("modal-firebase-config");
     if (modal) {
         modal.classList.add("hidden");
-        modal.style.display = "none";
+        modal.style.setProperty("display", "none", "important");
     }
 }
 
@@ -1424,7 +1433,7 @@ function abrirModalEditarParticipante(nome) {
     inputAntigo.value = nome;
     inputNome.value = nome;
     modal.classList.remove("hidden");
-    modal.style.display = "flex";
+    modal.style.setProperty("display", "flex", "important");
     setTimeout(() => {
         inputNome.focus();
         inputNome.select();
@@ -1435,7 +1444,7 @@ function fecharModalEditarParticipante() {
     const modal = document.getElementById("modal-editar-participante");
     if (modal) {
         modal.classList.add("hidden");
-        modal.style.display = "none";
+        modal.style.setProperty("display", "none", "important");
     }
 }
 

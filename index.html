@@ -85,7 +85,7 @@
                     <h1 class="text-3xl font-extrabold tracking-tight text-gray-900 flex items-center">
                         <span>Escala de Plantão Noturno</span>
                         <span class="text-xs bg-emerald-100 text-emerald-800 border border-emerald-300 px-2.5 py-0.5 rounded-full font-bold ml-2.5 flex items-center gap-1.5 shadow-sm">
-                            <i class="fa-solid fa-cloud text-emerald-600"></i> v4.4 (Seguro)
+                            <i class="fa-solid fa-cloud text-emerald-600"></i> v4.5 (Seguro)
                         </span>
                     </h1>
                     <p class="text-xs text-gray-500 font-medium mt-0.5">Segunda a Quinta-feira • 1 Servidor e 1 Terceirizado por dia</p>
@@ -108,13 +108,13 @@
         </header>
 
         <!-- Aviso persistente de falha ao gravar na nuvem -->
-        <div id="banner-falha-gravacao" class="hidden mb-6 bg-red-50 border-2 border-red-300 rounded-xl p-4 flex items-start gap-3 shadow-sm">
+        <div id="banner-falha-gravacao" style="display: none !important;" class="hidden mb-6 bg-red-50 border-2 border-red-300 rounded-xl p-4 flex items-start gap-3 shadow-sm">
             <i class="fa-solid fa-triangle-exclamation text-red-600 text-xl mt-0.5"></i>
             <div class="flex-1">
                 <h3 class="font-bold text-red-900 text-sm">As alterações NÃO estão sendo salvas na nuvem</h3>
                 <p id="texto-falha-gravacao" class="text-xs text-red-800 mt-1 leading-relaxed"></p>
             </div>
-            <button onclick="document.getElementById('banner-falha-gravacao').classList.add('hidden')" class="text-red-400 hover:text-red-700" title="Dispensar">
+            <button onclick="esconderFalhaGravacao()" class="text-red-400 hover:text-red-700" title="Dispensar">
                 <i class="fa-solid fa-xmark"></i>
             </button>
         </div>
@@ -531,6 +531,6 @@
     </div>
 
     <!-- Script principal (com cache-buster v3.6) -->
-    <script src="app.js?v=4.4"></script>
+    <script src="app.js?v=4.5"></script>
 </body>
 </html>
