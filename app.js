@@ -283,8 +283,16 @@ function sairDaConta() {
 function mostrarTelaLogin() {
     const tela = document.getElementById("tela-login");
     const app = document.getElementById("app-conteudo");
-    if (tela) tela.classList.remove("hidden");
-    if (app) app.classList.add("hidden");
+    // display explícito: a tela de login usa "flex", e só a classe "hidden"
+    // não basta para escondê-la (as duas regras de display competem).
+    if (tela) {
+        tela.classList.remove("hidden");
+        tela.style.display = "flex";
+    }
+    if (app) {
+        app.classList.add("hidden");
+        app.style.display = "none";
+    }
 
     const inputEmail = document.getElementById("login-email");
     if (inputEmail && !inputEmail.value) {
@@ -295,8 +303,14 @@ function mostrarTelaLogin() {
 function mostrarAplicacao(user) {
     const tela = document.getElementById("tela-login");
     const app = document.getElementById("app-conteudo");
-    if (tela) tela.classList.add("hidden");
-    if (app) app.classList.remove("hidden");
+    if (tela) {
+        tela.classList.add("hidden");
+        tela.style.display = "none";
+    }
+    if (app) {
+        app.classList.remove("hidden");
+        app.style.display = "block";
+    }
 
     const rotulo = document.getElementById("usuario-logado");
     if (rotulo) {
