@@ -645,17 +645,32 @@ function gerarEscalaSemanal() {
     }
 
     // Exibir Escala Resultante
-    exibirCardsEscala(semanaPropostaGlobal, escalaPropostaGlobal);
+    exibirCardsEscala(semanaPropostaGlobal, escalaPropostaGlobal, "gerada");
     const secaoResultado = document.getElementById("secao-resultado-escala");
     if (secaoResultado) secaoResultado.scrollIntoView({ behavior: 'smooth' });
     showToast("Escala (1 Servidor + 1 Terceirizado) gerada e salva no Histórico!", "success");
 }
 
-function exibirCardsEscala(semana, escala) {
+function exibirCardsEscala(semana, escala, origem = "historico") {
     const secaoResultado = document.getElementById("secao-resultado-escala");
     const cardsContainer = document.getElementById("escala-cards-container");
     if (!secaoResultado || !cardsContainer) return;
     cardsContainer.innerHTML = "";
+
+    // Selo de origem: deixa claro se o que está na tela acabou de ser gerado
+    // ou se é uma escala antiga recuperada do histórico.
+    const selo = document.getElementById("selo-origem-escala");
+    if (selo) {
+        const partes = (semana || "").split("-W");
+        const rotuloSemana = partes.length === 2 ? `Semana ${parseInt(partes[1], 10)}/${partes[0]}` : semana;
+        if (origem === "gerada") {
+            selo.className = "inline-flex items-center gap-1.5 text-xs font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-3 py-1 rounded-full";
+            selo.innerHTML = `<i class="fa-solid fa-circle-check text-emerald-600"></i> Escala recém-gerada (${rotuloSemana}) e salva no Histórico`;
+        } else {
+            selo.className = "inline-flex items-center gap-1.5 text-xs font-bold text-slate-700 bg-slate-100 border border-slate-300 px-3 py-1 rounded-full";
+            selo.innerHTML = `<i class="fa-solid fa-clock-rotate-left text-slate-500"></i> Escala salva no Histórico (${rotuloSemana}) — não reflete as marcações acima`;
+        }
+    }
 
     const dias = DIAS_PLANTAO;
     const diasComDatas = getDaysOfWeekWithDates(semana) || {};
@@ -680,7 +695,9 @@ function exibirCardsEscala(semana, escala) {
         }
 
         // Gerar as opções com TODOS os participantes cadastrados
-        const gerarOpcoesPlantonista = (nomeAtual) => {
+        // A edição manual é livre: qualquer pessoa pode ocupar qualquer slot.
+        // A categoria e a indisponibilidade aparecem no rótulo apenas como aviso.
+        const gerarOpcoesPlantonista = (nomeAtual, diaOpcao) => {
             let opts = `<option value="">-- VAGO --</option>`;
             opts += `<option value="FERIADO" ${nomeAtual === "FERIADO" ? "selected" : ""}>🏖️ FERIADO</option>`;
             todosAtivos.forEach(nome => {
@@ -688,9 +705,20 @@ function exibirCardsEscala(semana, escala) {
                 const p = db.participantes[nome];
                 const pl = p ? p.plantoes : 0;
                 const badgeTipo = p && p.tipo === "servidor" ? "🏛️ Servidor" : "🛠️ Terceirizado";
-                opts += `<option value="${nome}" ${selected}>${nome} (${badgeTipo} - ${pl} pl.)</option>`;
+                const indisponivel = p && Array.isArray(p.disponibilidade) && !p.disponibilidade.includes(diaOpcao);
+                const aviso = indisponivel ? " ⚠️ indisponível" : "";
+                opts += `<option value="${nome}" ${selected}>${nome} (${badgeTipo} - ${pl} pl.)${aviso}</option>`;
             });
             return opts;
+        };
+
+        // Categoria real de quem está ocupando cada slot, para evidenciar
+        // quando a composição fugiu da regra de 1 Servidor + 1 Terceirizado.
+        const rotuloCategoria = (nome) => {
+            if (!nome || nome === "FERIADO") return "";
+            const p = db.participantes[nome];
+            if (!p) return "";
+            return p.tipo === "servidor" ? "🏛️ Servidor" : "🛠️ Terceirizado";
         };
 
         card.innerHTML = `
@@ -707,10 +735,10 @@ function exibirCardsEscala(semana, escala) {
                     <div class="bg-blue-50/70 p-2.5 rounded-lg border border-blue-200">
                         <label class="block text-xs font-bold text-blue-900 mb-1 flex items-center justify-between">
                             <span><i class="fa-solid fa-user-check mr-1 text-blue-600"></i> Plantonista 1:</span>
-                            <span class="text-[10px] font-semibold text-blue-600">${p1Atual && p1Atual !== 'FERIADO' ? 'Plantão' : ''}</span>
+                            <span class="text-[10px] font-semibold text-blue-600">${rotuloCategoria(p1Atual)}</span>
                         </label>
                         <select onchange="atualizarEscalaManual('${dia}', 'servidor', this.value)" class="w-full text-xs font-semibold text-gray-900 border border-gray-300 rounded-md p-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white shadow-sm">
-                            ${gerarOpcoesPlantonista(p1Atual)}
+                            ${gerarOpcoesPlantonista(p1Atual, dia)}
                         </select>
                     </div>
 
@@ -718,10 +746,10 @@ function exibirCardsEscala(semana, escala) {
                     <div class="bg-indigo-50/70 p-2.5 rounded-lg border border-indigo-200">
                         <label class="block text-xs font-bold text-indigo-900 mb-1 flex items-center justify-between">
                             <span><i class="fa-solid fa-user-check mr-1 text-indigo-600"></i> Plantonista 2:</span>
-                            <span class="text-[10px] font-semibold text-indigo-600">${p2Atual && p2Atual !== 'FERIADO' ? 'Plantão' : ''}</span>
+                            <span class="text-[10px] font-semibold text-indigo-600">${rotuloCategoria(p2Atual)}</span>
                         </label>
                         <select onchange="atualizarEscalaManual('${dia}', 'terceirizado', this.value)" class="w-full text-xs font-semibold text-gray-900 border border-gray-300 rounded-md p-1.5 focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white shadow-sm">
-                            ${gerarOpcoesPlantonista(p2Atual)}
+                            ${gerarOpcoesPlantonista(p2Atual, dia)}
                         </select>
                     </div>
                 </div>
@@ -743,7 +771,7 @@ function recuperarUltimaEscalaNaTela() {
         }
         escalaPropostaGlobal = JSON.parse(JSON.stringify(ultima.escala));
         semanaPropostaGlobal = ultima.semana;
-        exibirCardsEscala(semanaPropostaGlobal, escalaPropostaGlobal);
+        exibirCardsEscala(semanaPropostaGlobal, escalaPropostaGlobal, "historico");
     }
 }
 
@@ -1525,7 +1553,17 @@ function selecionarSemanaPeloCalendario(semanaStr) {
     if (escalaSalva) {
         escalaPropostaGlobal = JSON.parse(JSON.stringify(escalaSalva.escala));
         semanaPropostaGlobal = escalaSalva.semana;
-        exibirCardsEscala(semanaPropostaGlobal, escalaPropostaGlobal);
+        exibirCardsEscala(semanaPropostaGlobal, escalaPropostaGlobal, "historico");
+    } else {
+        // Sem escala para a semana escolhida: esconder os cards da semana anterior.
+        // Antes, eles continuavam na tela e qualquer alteração era gravada
+        // silenciosamente no histórico de OUTRA semana.
+        escalaPropostaGlobal = null;
+        semanaPropostaGlobal = semanaStr;
+        const secaoResultado = document.getElementById("secao-resultado-escala");
+        if (secaoResultado) secaoResultado.classList.add("hidden");
+        const containerAlertas = document.getElementById("container-alertas-escala");
+        if (containerAlertas) containerAlertas.classList.add("hidden");
     }
 }
 
