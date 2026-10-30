@@ -85,7 +85,7 @@
                     <h1 class="text-3xl font-extrabold tracking-tight text-gray-900 flex items-center">
                         <span>Escala de Plantão Noturno</span>
                         <span class="text-xs bg-emerald-100 text-emerald-800 border border-emerald-300 px-2.5 py-0.5 rounded-full font-bold ml-2.5 flex items-center gap-1.5 shadow-sm">
-                            <i class="fa-solid fa-cloud text-emerald-600"></i> v4.5 (Seguro)
+                            <i class="fa-solid fa-cloud text-emerald-600"></i> v4.6 (Férias)
                         </span>
                     </h1>
                     <p class="text-xs text-gray-500 font-medium mt-0.5">Segunda a Quinta-feira • 1 Servidor e 1 Terceirizado por dia</p>
@@ -530,7 +530,72 @@
         </div>
     </div>
 
-    <!-- Script principal (com cache-buster v3.6) -->
-    <script src="app.js?v=4.5"></script>
+    <!-- Modal de Gestão de Férias / Afastamentos -->
+    <div id="modal-ferias" style="display: none !important;" onclick="if(event.target === this) fecharModalFerias()" class="hidden fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+        <div class="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-gray-200 animate-in fade-in max-h-[90vh] flex flex-col">
+            <div class="flex items-center justify-between pb-3 border-b border-gray-200">
+                <h3 class="text-lg font-bold text-gray-900 flex items-center gap-2">
+                    <i class="fa-solid fa-plane-departure text-amber-600"></i>
+                    <span>Férias / Afastamento: <span id="modal-ferias-nome" class="text-blue-600"></span></span>
+                </h3>
+                <button type="button" onclick="fecharModalFerias()" class="text-gray-400 hover:text-gray-600">
+                    <i class="fa-solid fa-xmark fa-lg"></i>
+                </button>
+            </div>
+
+            <!-- Conteúdo com scroll -->
+            <div class="overflow-y-auto flex-1 mt-4 space-y-5 pr-1">
+                <!-- Formulário para novo período -->
+                <form id="form-novo-periodo-ferias" onsubmit="adicionarPeriodoFerias(event)" class="bg-amber-50/70 border border-amber-200 rounded-xl p-4 space-y-3">
+                    <h4 class="text-xs font-bold text-amber-900 uppercase tracking-wide flex items-center gap-1.5">
+                        <i class="fa-solid fa-calendar-plus text-amber-600"></i>
+                        <span>Cadastrar Novo Período</span>
+                    </h4>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
+                            <label for="ferias-data-inicio" class="block text-xs font-bold text-gray-700 mb-1">Data de Início:</label>
+                            <input type="date" id="ferias-data-inicio" required class="w-full text-xs font-semibold border border-gray-300 rounded-lg p-2 focus:ring-2 focus:ring-amber-500 bg-white">
+                        </div>
+                        <div>
+                            <label for="ferias-data-fim" class="block text-xs font-bold text-gray-700 mb-1">Data de Fim (inclusive):</label>
+                            <input type="date" id="ferias-data-fim" required class="w-full text-xs font-semibold border border-gray-300 rounded-lg p-2 focus:ring-2 focus:ring-amber-500 bg-white">
+                        </div>
+                    </div>
+                    <div>
+                        <label for="ferias-motivo" class="block text-xs font-bold text-gray-700 mb-1">Motivo / Observação (opcional):</label>
+                        <input type="text" id="ferias-motivo" placeholder="Ex: Férias regulamentares, Licença médica, etc." class="w-full text-xs border border-gray-300 rounded-lg p-2 focus:ring-2 focus:ring-amber-500 bg-white">
+                    </div>
+                    <button type="submit" class="w-full bg-amber-600 hover:bg-amber-700 text-white font-bold py-2.5 px-3 rounded-lg text-xs shadow-sm flex items-center justify-center gap-2 transition-all">
+                        <i class="fa-solid fa-plus"></i>
+                        <span>Adicionar Período de Férias</span>
+                    </button>
+                </form>
+
+                <!-- Listagem de períodos já cadastrados -->
+                <div>
+                    <h4 class="text-xs font-bold text-gray-700 uppercase tracking-wide mb-2 flex items-center justify-between">
+                        <span>Períodos Cadastrados</span>
+                        <span id="badge-total-ferias" class="text-[11px] bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full font-bold">0 períodos</span>
+                    </h4>
+                    <div id="lista-periodos-ferias" class="space-y-2">
+                        <!-- Preenchido via JS -->
+                    </div>
+                    <div id="aviso-sem-ferias" class="text-center py-6 text-gray-400 bg-gray-50 rounded-xl border border-dashed border-gray-200">
+                        <i class="fa-solid fa-umbrella-beach text-gray-300 text-2xl mb-1"></i>
+                        <p class="text-xs">Nenhum período de férias ou afastamento cadastrado para este participante.</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="pt-3 border-t border-gray-200 flex justify-end">
+                <button type="button" onclick="fecharModalFerias()" class="px-4 py-2 text-xs font-bold text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors">
+                    Fechar
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Script principal (com cache-buster v4.6) -->
+    <script src="app.js?v=4.6"></script>
 </body>
 </html>

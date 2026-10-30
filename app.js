@@ -47,6 +47,7 @@ document.addEventListener("DOMContentLoaded", () => {
     // Garantir que nenhum modal comece aberto
     fecharModalEditarParticipante();
     fecharModalFirebaseConfig();
+    fecharModalFerias();
 
     // A autenticação vem antes de tudo: só depois de confirmar o usuário
     // é que os dados são carregados e a conexão com o Firestore é aberta.
@@ -367,6 +368,9 @@ function loadData() {
                 if (!p.tipo) {
                     p.tipo = "servidor";
                 }
+                if (!p.ferias || !Array.isArray(p.ferias)) {
+                    p.ferias = [];
+                }
                 if (!p.disponibilidade || !Array.isArray(p.disponibilidade)) {
                     p.disponibilidade = [...DIAS_PLANTAO];
                 } else {
@@ -501,6 +505,7 @@ function aplicarDadosNuvem(docs, opcoesLeitura = {}) {
         const p = participantes[nome];
         if (!p.tipo) p.tipo = "servidor";
         if (!p.disponibilidade) p.disponibilidade = [...DIAS_PLANTAO];
+        if (!p.ferias || !Array.isArray(p.ferias)) p.ferias = [];
     });
 
     historico.sort((a, b) => b.semana.localeCompare(a.semana));
@@ -778,7 +783,8 @@ function addParticipant(nome, tipo = "servidor") {
         plantoes: 0,
         ativo: true,
         tipo: tipo, // "servidor" ou "terceirizado"
-        disponibilidade: [...DIAS_PLANTAO]
+        disponibilidade: [...DIAS_PLANTAO],
+        ferias: []
     };
     saveData();
     return true;
@@ -846,7 +852,7 @@ function shuffleArray(array) {
  * Resolve o agendamento de uma categoria específica (servidor ou terceirizado)
  * para os dias Segunda a Quinta, priorizando justiça (menor saldo de plantão acumulado).
  */
-function solveRoleSchedule(tipoDesejado, disponibilidades, feriados = []) {
+function solveRoleSchedule(tipoDesejado, disponibilidades, feriados = [], semana = "") {
     const dias = DIAS_PLANTAO;
     const ativosRole = {};
 
@@ -875,7 +881,12 @@ function solveRoleSchedule(tipoDesejado, disponibilidades, feriados = []) {
         if (ativosRole[nome]) {
             for (const dia of diasDisponiveis) {
                 if (candidatosPorDia[dia]) {
-                    candidatosPorDia[dia].push(nome);
+                    // Garantir que não seja alocado em dia que estiver de férias
+                    const dataDoDia = semana ? obterDataIsoDoDiaNaSemana(semana, dia) : null;
+                    const deFerias = dataDoDia ? estaDeFeriasNaData(nome, dataDoDia) : false;
+                    if (!deFerias) {
+                        candidatosPorDia[dia].push(nome);
+                    }
                 }
             }
         }
@@ -973,9 +984,9 @@ function solveRoleSchedule(tipoDesejado, disponibilidades, feriados = []) {
 /**
  * Resolve a escala completa gerando 2 participantes por dia (1 Servidor + 1 Terceirizado)
  */
-function solveSchedule(disponibilidades, feriados = []) {
-    const resServidor = solveRoleSchedule("servidor", disponibilidades, feriados);
-    const resTerceirizado = solveRoleSchedule("terceirizado", disponibilidades, feriados);
+function solveSchedule(disponibilidades, feriados = [], semana = "") {
+    const resServidor = solveRoleSchedule("servidor", disponibilidades, feriados, semana);
+    const resTerceirizado = solveRoleSchedule("terceirizado", disponibilidades, feriados, semana);
 
     const dias = DIAS_PLANTAO;
     const escalaFinal = {};
@@ -1014,7 +1025,10 @@ function gerarEscalaSemanal() {
         disponibilidades[nome] = [];
         dias.forEach(dia => {
             const check = document.getElementById(`disp-${nome}-${dia}`);
-            if (check && check.checked) {
+            const dataIsoDia = obterDataIsoDoDiaNaSemana(semanaPropostaGlobal, dia);
+            const deFerias = dataIsoDia ? estaDeFeriasNaData(nome, dataIsoDia) : false;
+
+            if (check && check.checked && !check.disabled && !deFerias) {
                 disponibilidades[nome].push(dia);
             }
         });
@@ -1039,20 +1053,37 @@ function gerarEscalaSemanal() {
     }
 
     // Rodar algoritmo para Servidores e Terceirizados
-    const resultado = solveSchedule(disponibilidades, feriados);
+    const resultado = solveSchedule(disponibilidades, feriados, semanaPropostaGlobal);
     escalaPropostaGlobal = JSON.parse(JSON.stringify(resultado.escala));
 
     // Salvar automaticamente no histórico
     salvarEscalaNoHistorico(semanaPropostaGlobal, escalaPropostaGlobal);
 
+    // Identificar participantes em férias na semana para informar no resumo
+    const alertasFerias = [];
+    ativos.forEach(nome => {
+        const diasFerias = [];
+        dias.forEach(dia => {
+            const dataIsoDia = obterDataIsoDoDiaNaSemana(semanaPropostaGlobal, dia);
+            if (dataIsoDia && estaDeFeriasNaData(nome, dataIsoDia)) {
+                diasFerias.push(dia);
+            }
+        });
+        if (diasFerias.length > 0) {
+            const cat = db.participantes[nome].tipo === "servidor" ? "Servidor" : "Terceirizado";
+            alertasFerias.push(`🏖️ <strong>${nome}</strong> (${cat}) está em período de férias (${diasFerias.join(", ")}) e não foi incluído nestes dias.`);
+        }
+    });
+
     // Exibir Alertas se houver
     const containerAlertas = document.getElementById("container-alertas-escala");
     const listaAlertas = document.getElementById("lista-alertas-escala");
     
+    const todosAlertas = [...resultado.alertas, ...alertasFerias];
     if (containerAlertas && listaAlertas) {
-        if (resultado.alertas.length > 0) {
+        if (todosAlertas.length > 0) {
             containerAlertas.classList.remove("hidden");
-            listaAlertas.innerHTML = resultado.alertas.map(a => `<li>${a}</li>`).join("");
+            listaAlertas.innerHTML = todosAlertas.map(a => `<li>${a}</li>`).join("");
         } else {
             containerAlertas.classList.add("hidden");
             listaAlertas.innerHTML = "";
@@ -1120,8 +1151,17 @@ function exibirCardsEscala(semana, escala, origem = "historico") {
                 const p = db.participantes[nome];
                 const pl = p ? p.plantoes : 0;
                 const badgeTipo = p && p.tipo === "servidor" ? "🏛️ Servidor" : "🛠️ Terceirizado";
+
+                const dataDoDia = obterDataIsoDoDiaNaSemana(semana, diaOpcao);
+                const infoFerias = dataDoDia ? obterInfoFeriasNaData(nome, dataDoDia) : null;
                 const indisponivel = p && Array.isArray(p.disponibilidade) && !p.disponibilidade.includes(diaOpcao);
-                const aviso = indisponivel ? " ⚠️ indisponível" : "";
+
+                let aviso = "";
+                if (infoFerias) {
+                    aviso = " 🏖️ DE FÉRIAS";
+                } else if (indisponivel) {
+                    aviso = " ⚠️ indisponível";
+                }
                 opts += `<option value="${nome}" ${selected}>${nome} (${badgeTipo} - ${pl} pl.)${aviso}</option>`;
             });
             return opts;
@@ -1295,7 +1335,14 @@ function atualizarEscalaManual(dia, tipo, novoNome) {
 
     const labelTipo = tipo === "servidor" ? "Servidor" : "Terceirizado";
     const labelFeedback = (novoNome === "FERIADO") ? "FERIADO" : (novoNome || "VAGO");
-    showToast(`${labelTipo} de ${dia} alterado para: ${labelFeedback}!`, "success");
+    
+    const dataDoDia = obterDataIsoDoDiaNaSemana(semanaPropostaGlobal, dia);
+    const infoFerias = (novoNome && novoNome !== "FERIADO" && dataDoDia) ? obterInfoFeriasNaData(novoNome, dataDoDia) : null;
+    if (infoFerias) {
+        showToast(`Atenção: ${novoNome} possui registro de férias para ${dia}!`, "info");
+    } else {
+        showToast(`${labelTipo} de ${dia} alterado para: ${labelFeedback}!`, "success");
+    }
 }
 
 // --- EXPORTAÇÃO PARA EXCEL (SHEETJS) ---
@@ -1383,11 +1430,22 @@ function renderParticipantes() {
         const p = db.participantes[nome];
         const ehServidor = (p.tipo === "servidor");
         const nomeEscapado = nome.replace(/'/g, "\\'");
+        const qtdFerias = (p.ferias && Array.isArray(p.ferias)) ? p.ferias.length : 0;
+        const hojeIso = formatDateIso(new Date());
+        const infoFeriasHoje = estaDeFeriasNaData(nome, hojeIso);
+        
+        let badgeFeriasAtual = "";
+        if (infoFeriasHoje) {
+            badgeFeriasAtual = `<span class="ml-2 inline-flex items-center gap-1 text-[10px] bg-amber-100 text-amber-800 border border-amber-300 px-2 py-0.5 rounded-full font-bold shadow-2xs" title="De férias até ${formatDateBR(infoFeriasHoje.fim)}"><i class="fa-solid fa-umbrella-beach text-[9px]"></i> De Férias</span>`;
+        }
+
         const tr = document.createElement("tr");
         tr.className = "hover:bg-gray-50 transition-colors";
         
         tr.innerHTML = `
-            <td class="px-6 py-4 whitespace-nowrap text-sm font-bold text-gray-900">${nome}</td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm font-bold text-gray-900">
+                <span class="inline-flex items-center">${nome} ${badgeFeriasAtual}</span>
+            </td>
             <td class="px-6 py-4 whitespace-nowrap text-center">
                 <button onclick="toggleParticipantTipo('${nomeEscapado}')" title="Clique para alternar categoria" class="px-3 py-1 text-xs font-bold rounded-full border transition-all inline-flex items-center gap-1.5 cursor-pointer shadow-sm ${
                     ehServidor
@@ -1410,6 +1468,10 @@ function renderParticipantes() {
                 </button>
             </td>
             <td class="px-6 py-4 whitespace-nowrap text-center text-sm space-x-3">
+                <button onclick="abrirModalFerias('${nomeEscapado}')" class="text-amber-600 hover:text-amber-800 font-semibold inline-flex items-center space-x-1 transition-colors" title="Cadastrar e gerenciar períodos de férias">
+                    <i class="fa-solid fa-plane-departure"></i>
+                    <span>Férias (${qtdFerias})</span>
+                </button>
                 <button onclick="abrirModalEditarParticipante('${nomeEscapado}')" class="text-blue-600 hover:text-blue-800 font-semibold inline-flex items-center space-x-1 transition-colors" title="Editar nome do participante">
                     <i class="fa-solid fa-user-pen"></i>
                     <span>Editar</span>
@@ -1524,6 +1586,244 @@ function confirmRemoveParticipant(nome) {
     }
 }
 
+// --- UTILITÁRIOS E CONTROLE DE FÉRIAS / AFASTAMENTOS ---
+
+function formatDateIso(date) {
+    if (!date) return "";
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, '0');
+    const d = String(date.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+}
+
+function formatDateBR(ymdStr) {
+    if (!ymdStr) return "";
+    const parts = ymdStr.split("-");
+    if (parts.length === 3) {
+        return `${parts[2]}/${parts[1]}/${parts[0]}`;
+    }
+    return ymdStr;
+}
+
+function calcularDiasPeriodo(inicioStr, fimStr) {
+    if (!inicioStr || !fimStr) return 0;
+    const d1 = new Date(inicioStr + "T00:00:00");
+    const d2 = new Date(fimStr + "T00:00:00");
+    const diffTime = d2.getTime() - d1.getTime();
+    if (diffTime < 0) return 0;
+    return Math.round(diffTime / (1000 * 3600 * 24)) + 1;
+}
+
+function obterDataIsoDoDiaNaSemana(semanaStr, diaNome) {
+    const dates = getDatesOfWeek(semanaStr);
+    if (!dates || !dates.monday) return null;
+    const dias = DIAS_PLANTAO;
+    const idx = dias.indexOf(diaNome);
+    if (idx === -1) return null;
+    const d = new Date(dates.monday.getTime());
+    d.setDate(dates.monday.getDate() + idx);
+    return formatDateIso(d);
+}
+
+function estaDeFeriasNaData(nome, dataObjOuStr) {
+    const p = db.participantes[nome];
+    if (!p || !Array.isArray(p.ferias) || p.ferias.length === 0) return false;
+    
+    let dataStr = "";
+    if (typeof dataObjOuStr === "string") {
+        dataStr = dataObjOuStr.slice(0, 10);
+    } else if (dataObjOuStr instanceof Date) {
+        dataStr = formatDateIso(dataObjOuStr);
+    }
+    if (!dataStr) return false;
+
+    return p.ferias.some(f => {
+        if (!f || !f.inicio || !f.fim) return false;
+        return dataStr >= f.inicio && dataStr <= f.fim;
+    });
+}
+
+function obterInfoFeriasNaData(nome, dataObjOuStr) {
+    const p = db.participantes[nome];
+    if (!p || !Array.isArray(p.ferias) || p.ferias.length === 0) return null;
+    
+    let dataStr = "";
+    if (typeof dataObjOuStr === "string") {
+        dataStr = dataObjOuStr.slice(0, 10);
+    } else if (dataObjOuStr instanceof Date) {
+        dataStr = formatDateIso(dataObjOuStr);
+    }
+    if (!dataStr) return null;
+
+    return p.ferias.find(f => f && f.inicio && f.fim && dataStr >= f.inicio && dataStr <= f.fim) || null;
+}
+
+let participanteFeriasAtual = "";
+
+function abrirModalFerias(nome) {
+    const p = db.participantes[nome];
+    if (!p) {
+        showToast(`Participante "${nome}" não encontrado.`, "error");
+        return;
+    }
+    participanteFeriasAtual = nome;
+    
+    const modal = document.getElementById("modal-ferias");
+    const labelNome = document.getElementById("modal-ferias-nome");
+    const inputInicio = document.getElementById("ferias-data-inicio");
+    const inputFim = document.getElementById("ferias-data-fim");
+    const inputMotivo = document.getElementById("ferias-motivo");
+
+    if (labelNome) labelNome.textContent = nome;
+    if (inputInicio) inputInicio.value = "";
+    if (inputFim) inputFim.value = "";
+    if (inputMotivo) inputMotivo.value = "";
+
+    renderizarListaFeriasModal(nome);
+
+    if (modal) {
+        modal.classList.remove("hidden");
+        modal.style.setProperty("display", "flex", "important");
+    }
+}
+
+function fecharModalFerias() {
+    const modal = document.getElementById("modal-ferias");
+    if (modal) {
+        modal.classList.add("hidden");
+        modal.style.setProperty("display", "none", "important");
+    }
+    participanteFeriasAtual = "";
+}
+
+function adicionarPeriodoFerias(event) {
+    if (event) event.preventDefault();
+    if (!participanteFeriasAtual || !db.participantes[participanteFeriasAtual]) {
+        showToast("Selecione um participante válido.", "error");
+        return;
+    }
+
+    const inputInicio = document.getElementById("ferias-data-inicio");
+    const inputFim = document.getElementById("ferias-data-fim");
+    const inputMotivo = document.getElementById("ferias-motivo");
+
+    const inicio = inputInicio ? inputInicio.value : "";
+    const fim = inputFim ? inputFim.value : "";
+    const motivo = inputMotivo ? inputMotivo.value.trim() : "";
+
+    if (!inicio || !fim) {
+        showToast("Informe as datas de início e término das férias.", "error");
+        return;
+    }
+
+    if (fim < inicio) {
+        showToast("A data de término não pode ser anterior à data de início.", "error");
+        return;
+    }
+
+    const p = db.participantes[participanteFeriasAtual];
+    if (!p.ferias || !Array.isArray(p.ferias)) {
+        p.ferias = [];
+    }
+
+    const novoPeriodo = {
+        id: "ferias_" + Date.now(),
+        inicio: inicio,
+        fim: fim,
+        motivo: motivo || "Férias"
+    };
+
+    p.ferias.push(novoPeriodo);
+    p.ferias.sort((a, b) => a.inicio.localeCompare(b.inicio));
+
+    saveData();
+    renderizarListaFeriasModal(participanteFeriasAtual);
+    renderParticipantes();
+    renderDisponibilidades();
+
+    if (inputInicio) inputInicio.value = "";
+    if (inputFim) inputFim.value = "";
+    if (inputMotivo) inputMotivo.value = "";
+
+    const diasTotais = calcularDiasPeriodo(inicio, fim);
+    showToast(`Férias de ${formatDateBR(inicio)} a ${formatDateBR(fim)} (${diasTotais} dias) registradas para ${participanteFeriasAtual}!`, "success");
+}
+
+function removerPeriodoFerias(nome, idPeriodo) {
+    if (!db.participantes[nome]) return;
+    if (!confirm(`Deseja realmente remover este período de férias de "${nome}"?`)) return;
+
+    if (Array.isArray(db.participantes[nome].ferias)) {
+        db.participantes[nome].ferias = db.participantes[nome].ferias.filter(f => f.id !== idPeriodo);
+    }
+
+    saveData();
+    renderizarListaFeriasModal(nome);
+    renderParticipantes();
+    renderDisponibilidades();
+    showToast("Período de férias removido com sucesso.", "info");
+}
+
+function renderizarListaFeriasModal(nome) {
+    const container = document.getElementById("lista-periodos-ferias");
+    const avisoSemFerias = document.getElementById("aviso-sem-ferias");
+    const badgeTotal = document.getElementById("badge-total-ferias");
+    if (!container || !avisoSemFerias) return;
+
+    container.innerHTML = "";
+    const p = db.participantes[nome];
+    const lista = (p && Array.isArray(p.ferias)) ? p.ferias : [];
+
+    if (badgeTotal) {
+        badgeTotal.textContent = `${lista.length} período${lista.length === 1 ? '' : 's'}`;
+    }
+
+    if (lista.length === 0) {
+        avisoSemFerias.classList.remove("hidden");
+        return;
+    } else {
+        avisoSemFerias.classList.add("hidden");
+    }
+
+    const hojeIso = formatDateIso(new Date());
+
+    lista.forEach(f => {
+        const itemDiv = document.createElement("div");
+        itemDiv.className = "p-3 rounded-xl border border-gray-200 bg-white hover:border-amber-300 transition-all flex items-center justify-between gap-3 shadow-xs";
+
+        const diasDuracao = calcularDiasPeriodo(f.inicio, f.fim);
+        let statusBadge = "";
+        if (hojeIso >= f.inicio && hojeIso <= f.fim) {
+            statusBadge = `<span class="bg-amber-100 text-amber-800 border border-amber-300 text-[10px] font-bold px-2 py-0.5 rounded-full inline-flex items-center gap-1"><i class="fa-solid fa-umbrella-beach text-[9px]"></i> Em andamento</span>`;
+        } else if (hojeIso < f.inicio) {
+            statusBadge = `<span class="bg-blue-100 text-blue-800 border border-blue-200 text-[10px] font-bold px-2 py-0.5 rounded-full inline-flex items-center gap-1"><i class="fa-solid fa-clock text-[9px]"></i> Agendada</span>`;
+        } else {
+            statusBadge = `<span class="bg-gray-100 text-gray-600 border border-gray-200 text-[10px] font-bold px-2 py-0.5 rounded-full inline-flex items-center gap-1"><i class="fa-solid fa-check text-[9px]"></i> Concluída</span>`;
+        }
+
+        const nomeEscapado = nome.replace(/'/g, "\\'");
+        const idEscapado = f.id.replace(/'/g, "\\'");
+
+        itemDiv.innerHTML = `
+            <div class="flex-1 min-w-0">
+                <div class="flex items-center gap-2 flex-wrap mb-1">
+                    <span class="text-xs font-extrabold text-gray-900">${formatDateBR(f.inicio)} até ${formatDateBR(f.fim)}</span>
+                    <span class="text-[11px] font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-md border border-amber-200">${diasDuracao} dia${diasDuracao === 1 ? '' : 's'}</span>
+                    ${statusBadge}
+                </div>
+                <p class="text-xs text-gray-600 truncate flex items-center gap-1">
+                    <i class="fa-solid fa-tag text-[10px] text-gray-400"></i>
+                    <span>${f.motivo || 'Férias regulamentares'}</span>
+                </p>
+            </div>
+            <button type="button" onclick="removerPeriodoFerias('${nomeEscapado}', '${idEscapado}')" class="text-red-500 hover:text-red-700 p-2 rounded-lg hover:bg-red-50 transition-colors" title="Excluir este período de férias">
+                <i class="fa-solid fa-trash-can"></i>
+            </button>
+        `;
+        container.appendChild(itemDiv);
+    });
+}
+
 function renderDisponibilidades() {
     const listBody = document.getElementById("lista-disponibilidades");
     const avisoVazio = document.getElementById("aviso-sem-participantes");
@@ -1557,6 +1857,8 @@ function renderDisponibilidades() {
     }
 
     const dias = DIAS_PLANTAO;
+    const inputSemana = document.getElementById("semana-selecionada");
+    const semanaAtual = inputSemana ? inputSemana.value : "";
 
     ativos.forEach(nome => {
         const p = db.participantes[nome];
@@ -1565,17 +1867,45 @@ function renderDisponibilidades() {
         tr.className = "hover:bg-gray-50 transition-colors";
         
         let htmlCheckboxes = "";
+        let diasEmFeriasCount = 0;
+
         dias.forEach(dia => {
-            const estaDisponivel = p.disponibilidade ? p.disponibilidade.includes(dia) : true;
-            htmlCheckboxes += `
-                <td class="px-6 py-4 whitespace-nowrap text-center">
-                    <input type="checkbox" id="disp-${nome}-${dia}" ${estaDisponivel ? 'checked' : ''} class="h-4.5 w-4.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer">
-                </td>
-            `;
+            const dataIsoDia = semanaAtual ? obterDataIsoDoDiaNaSemana(semanaAtual, dia) : null;
+            const infoFerias = dataIsoDia ? obterInfoFeriasNaData(nome, dataIsoDia) : null;
+            const estaFerias = !!infoFerias;
+
+            if (estaFerias) {
+                diasEmFeriasCount++;
+                const descObs = infoFerias.motivo ? `: ${infoFerias.motivo}` : '';
+                htmlCheckboxes += `
+                    <td class="px-6 py-4 whitespace-nowrap text-center">
+                        <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-bold bg-amber-100 text-amber-800 border border-amber-300 shadow-2xs select-none" title="De férias (${formatDateBR(infoFerias.inicio)} a ${formatDateBR(infoFerias.fim)})${descObs}">
+                            <i class="fa-solid fa-umbrella-beach text-[10px]"></i> Férias
+                        </span>
+                        <input type="checkbox" id="disp-${nome}-${dia}" class="hidden" disabled>
+                    </td>
+                `;
+            } else {
+                const estaDisponivel = p.disponibilidade ? p.disponibilidade.includes(dia) : true;
+                htmlCheckboxes += `
+                    <td class="px-6 py-4 whitespace-nowrap text-center">
+                        <input type="checkbox" id="disp-${nome}-${dia}" ${estaDisponivel ? 'checked' : ''} class="h-4.5 w-4.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer">
+                    </td>
+                `;
+            }
         });
 
+        let statusExtraNome = "";
+        if (diasEmFeriasCount === dias.length) {
+            statusExtraNome = `<span class="ml-2 inline-flex items-center gap-1 text-[10px] bg-amber-50 text-amber-800 border border-amber-300 px-2 py-0.5 rounded-full font-bold">🏖️ Semana em férias</span>`;
+        } else if (diasEmFeriasCount > 0) {
+            statusExtraNome = `<span class="ml-2 inline-flex items-center gap-1 text-[10px] bg-amber-50 text-amber-800 border border-amber-200 px-2 py-0.5 rounded-full font-bold">🏖️ ${diasEmFeriasCount}d de férias</span>`;
+        }
+
         tr.innerHTML = `
-            <td class="px-6 py-4 whitespace-nowrap text-sm font-bold text-gray-900">${nome}</td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm font-bold text-gray-900">
+                <span class="inline-flex items-center">${nome} ${statusExtraNome}</span>
+            </td>
             <td class="px-6 py-4 whitespace-nowrap text-center">
                 <span class="px-2.5 py-0.5 rounded-full text-xs font-bold inline-flex items-center gap-1 ${
                     ehServidor ? 'bg-blue-100 text-blue-800' : 'bg-purple-100 text-purple-800'
@@ -1807,6 +2137,8 @@ function atualizarTextoSemana() {
                 textoIntervalo.classList.add("hidden");
             }
         }
+
+        renderDisponibilidades();
     }
 }
 
@@ -2004,12 +2336,17 @@ document.addEventListener("click", (e) => {
 function salvarDisponibilidades() {
     const ativos = Object.keys(db.participantes).filter(nome => db.participantes[nome].ativo);
     const dias = DIAS_PLANTAO;
+    const inputSemana = document.getElementById("semana-selecionada");
+    const semanaAtual = inputSemana ? inputSemana.value : "";
     
     ativos.forEach(nome => {
         const disp = [];
         dias.forEach(dia => {
             const check = document.getElementById(`disp-${nome}-${dia}`);
-            if (check && check.checked) {
+            const dataIsoDia = semanaAtual ? obterDataIsoDoDiaNaSemana(semanaAtual, dia) : null;
+            const deFerias = dataIsoDia ? estaDeFeriasNaData(nome, dataIsoDia) : false;
+
+            if (check && check.checked && !check.disabled && !deFerias) {
                 disp.push(dia);
             }
         });
@@ -2027,7 +2364,7 @@ function limparDisponibilidades() {
     ativos.forEach(nome => {
         dias.forEach(dia => {
             const check = document.getElementById(`disp-${nome}-${dia}`);
-            if (check) check.checked = false;
+            if (check && !check.disabled) check.checked = false;
         });
     });
 
@@ -2111,6 +2448,7 @@ function uploadBackup(event) {
                     Object.keys(db.participantes).forEach(nome => {
                         if (!db.participantes[nome].tipo) db.participantes[nome].tipo = "servidor";
                         if (!db.participantes[nome].disponibilidade) db.participantes[nome].disponibilidade = [...DIAS_PLANTAO];
+                        if (!db.participantes[nome].ferias || !Array.isArray(db.participantes[nome].ferias)) db.participantes[nome].ferias = [];
                     });
                     saveData();
                     renderAll();
@@ -2135,6 +2473,7 @@ document.addEventListener("keydown", (e) => {
     if (e.key === "Escape") {
         fecharModalEditarParticipante();
         fecharModalFirebaseConfig();
+        fecharModalFerias();
         fecharCalendarioSemana();
     }
 });
